@@ -1,0 +1,407 @@
+.root {
+    flex-grow: 1;
+    flex-direction: row;
+    padding: 16px;
+    background-color: rgb(22, 24, 28);
+    color: rgb(226, 228, 232);
+    font-size: 20px;
+    -unity-font-style: normal;
+}
+
+.column {
+    padding: 8px;
+    margin-right: 12px;
+    background-color: rgb(30, 33, 38);
+    border-radius: 6px;
+}
+
+.palette {
+    width: 260px;
+}
+
+.board {
+    flex-grow: 1;
+}
+
+.stats {
+    width: 340px;
+    margin-right: 0;
+}
+
+.header {
+    margin-bottom: 8px;
+    margin-right: 8px;
+    font-size: 20px;
+    -unity-font-style: bold;
+    color: rgb(236, 238, 242);
+}
+
+.board-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.zoom-bar {
+    flex-direction: row;
+    align-items: center;
+}
+
+.zoom-button {
+    width: 28px;
+    height: 24px;
+    margin-left: 4px;
+    margin-right: 4px;
+    padding: 0;
+    font-size: 20px;
+    background-color: rgb(46, 50, 58);
+    color: rgb(236, 238, 242);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.zoom-label {
+    width: 64px;
+    -unity-text-align: middle-center;
+    font-size: 20px;
+    color: rgb(214, 218, 224);
+}
+
+.fight-button {
+    height: 28px;
+    margin-left: 12px;
+    padding-left: 10px;
+    padding-right: 10px;
+    font-size: 20px;
+    background-color: rgb(58, 78, 64);
+    color: rgb(236, 238, 242);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.28);
+    border-radius: 4px;
+}
+
+.grid-scroll {
+    flex-grow: 1;
+}
+
+.list {
+    flex-grow: 1;
+}
+
+.chip {
+    height: 40px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    flex-direction: row;
+    align-items: center;
+    color: rgb(16, 18, 20);
+    -unity-font-style: bold;
+    padding-left: 8px;
+}
+
+.chip-selected {
+    border-left-width: 4px;
+    border-left-color: rgb(244, 244, 244);
+}
+
+.grid-host {
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    margin-left: auto;
+    margin-right: auto;
+    overflow: visible;
+}
+
+.grid-row {
+    flex-direction: row;
+    overflow: visible;
+}
+
+.cell {
+    width: 36px;
+    height: 36px;
+    margin: 1px;
+    padding: 0;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.14);
+    background-color: rgb(46, 50, 58);
+    overflow: visible;
+}
+
+.room-cover {
+    position: absolute;
+}
+
+.room-label {
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    font-size: 20px;
+    color: rgb(20, 22, 26);
+    white-space: nowrap;
+}
+
+.cell-empty {
+    background-color: rgb(46, 50, 58);
+}
+
+.cell-blocked {
+    background-color: rgb(14, 14, 16);
+}
+
+.cell-offline {
+    opacity: 0.45;
+}
+
+.cell-unreached {
+    border-color: rgb(214, 168, 72);
+}
+
+.cell-face-n {
+    border-top-width: 3px;
+    border-top-color: rgb(244, 244, 244);
+}
+
+.cell-face-e {
+    border-right-width: 3px;
+    border-right-color: rgb(244, 244, 244);
+}
+
+.cell-face-s {
+    border-bottom-width: 3px;
+    border-bottom-color: rgb(244, 244, 244);
+}
+
+.cell-face-w {
+    border-left-width: 3px;
+    border-left-color: rgb(244, 244, 244);
+}
+
+.face-mark {
+    position: absolute;
+}
+
+.cell-heat {
+    border-color: rgb(110, 186, 204);
+}
+
+.cell-dc {
+    border-color: rgb(110, 186, 130);
+}
+
+.cell-range {
+    border-color: rgb(186, 214, 120);
+}
+
+.cell-empty.cell-range {
+    background-color: rgba(186, 214, 120, 0.45);
+}
+
+.stat-body {
+    flex-direction: column;
+}
+
+.stat-line {
+    white-space: normal;
+    font-size: 20px;
+    color: rgb(214, 218, 224);
+}
+
+.message {
+    margin-top: 8px;
+    white-space: normal;
+    color: rgb(186, 194, 204);
+    font-size: 20px;
+}
+
+.text-bad {
+    color: rgb(214, 64, 58);
+}
+
+.cell-drop-ok {
+    border-color: rgb(126, 196, 146);
+}
+
+.cell-drop-bad {
+    border-color: rgb(196, 96, 96);
+}
+
+.drag-ghost {
+    position: absolute;
+    opacity: 0.9;
+    border-width: 1px;
+    border-color: rgb(244, 244, 244);
+    -unity-text-align: middle-center;
+    font-size: 20px;
+}
+
+.cell-half {
+    position: absolute;
+}
+
+.combat-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-direction: column;
+    background-color: rgb(8, 10, 14);
+}
+
+.combat-bar {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 12px;
+}
+
+.combat-field {
+    flex-grow: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.combat-ship {
+    position: absolute;
+}
+
+.combat-row {
+    flex-direction: row;
+}
+
+.combat-cell {
+    margin-right: 1px;
+    margin-bottom: 1px;
+}
+
+.ship-nose {
+    position: absolute;
+    left: 42%;
+    right: 42%;
+    top: 0;
+    height: 5px;
+    background-color: rgb(244, 244, 244);
+}
+
+.orbit-line {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.shot-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.shot-mark {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background-color: rgb(255, 228, 170);
+}
+
+.planet-body {
+    position: absolute;
+    background-color: rgb(96, 78, 58);
+}
+
+.planet-ring {
+    position: absolute;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 1px;
+    border-color: rgba(186, 196, 206, 0.35);
+}
+
+.order-menu {
+    position: absolute;
+    background-color: rgb(18, 22, 28);
+    border-width: 1px;
+    border-color: rgb(186, 198, 210);
+    padding: 8px 10px 10px 10px;
+    max-width: 720px;
+}
+
+.order-head {
+    margin-top: 6px;
+    margin-bottom: 4px;
+    font-size: 20px;
+    color: rgb(236, 238, 242);
+}
+
+.order-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.order-name {
+    width: 72px;
+    font-size: 20px;
+    color: rgb(226, 228, 232);
+}
+
+.order-chip {
+    margin-right: 4px;
+    margin-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    background-color: rgb(42, 48, 58);
+    border-width: 1px;
+    border-color: rgb(120, 130, 142);
+    color: rgb(236, 238, 242);
+}
+
+.order-on {
+    background-color: rgb(58, 96, 138);
+    border-color: rgb(186, 214, 236);
+}
+
+.fire-dock {
+    position: absolute;
+    right: 16px;
+    top: 12px;
+    width: 148px;
+}
+
+.fire-switch {
+    margin-bottom: 6px;
+    height: 36px;
+    font-size: 20px;
+    background-color: rgb(28, 32, 38);
+    border-width: 1px;
+    border-color: rgb(120, 130, 142);
+    color: rgb(236, 238, 242);
+}
+
+.auto-hint {
+    position: absolute;
+    right: 16px;
+    bottom: 12px;
+    padding: 8px 14px;
+    font-size: 20px;
+    color: rgb(236, 238, 242);
+    background-color: rgb(18, 22, 28);
+    border-width: 1px;
+    border-color: rgb(186, 214, 236);
+    white-space: nowrap;
+}
+
+.combat-hud {
+    white-space: normal;
+    font-size: 20px;
+    padding: 8px 16px 12px 16px;
+    color: rgb(226, 228, 232);
+    background-color: rgb(16, 18, 22);
+}

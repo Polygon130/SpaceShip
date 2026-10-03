@@ -1,0 +1,28 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <Style src="AssemblyPanel.uss" />
+    <ui:VisualElement name="assembly-root" class="root">
+        <ui:VisualElement name="palette" class="column palette">
+            <ui:Label text="舱室" class="header" />
+            <ui:ScrollView name="palette-list" class="list" />
+        </ui:VisualElement>
+        <ui:VisualElement name="board" class="column board">
+            <ui:VisualElement class="board-head">
+                <ui:Label text="船壳" class="header" />
+                <ui:VisualElement class="zoom-bar">
+                    <ui:Button name="zoom-out" text="-" class="zoom-button" />
+                    <ui:Label name="zoom-label" text="100%" class="zoom-label" />
+                    <ui:Button name="zoom-in" text="+" class="zoom-button" />
+                    <ui:Button name="fight" text="开战" class="fight-button" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:ScrollView name="grid-scroll" class="grid-scroll">
+                <ui:VisualElement name="grid-host" class="grid-host" />
+            </ui:ScrollView>
+            <ui:Label name="message" class="message" />
+        </ui:VisualElement>
+        <ui:VisualElement name="stats" class="column stats">
+            <ui:Label text="装配结果" class="header" />
+            <ui:VisualElement name="stat-body" class="stat-body" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
