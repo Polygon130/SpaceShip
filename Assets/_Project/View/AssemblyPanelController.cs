@@ -43,6 +43,11 @@ namespace SpaceShip
                 turn -= 1f;
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow))
                 turn += 1f;
+            float strafe = 0f;
+            if (Input.GetKey(KeyCode.Q))
+                strafe -= 1f;
+            if (Input.GetKey(KeyCode.E))
+                strafe += 1f;
             int span = sim.flight != null && sim.flight.gearCount > 0 ? sim.flight.gearCount : 4;
             float repeat = sim.flight != null && sim.flight.gearRepeat > 0.05f ? sim.flight.gearRepeat : 0.5f;
             bool up = Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow);
@@ -52,7 +57,7 @@ namespace SpaceShip
                 want = 1;
             else if (down && !up)
                 want = -1;
-            bool stick = want != 0 || Mathf.Abs(turn) > 0.01f;
+            bool stick = want != 0 || Mathf.Abs(turn) > 0.01f || Mathf.Abs(strafe) > 0.01f;
             if (stick && sim.order != ShipOrder.Manual)
             {
                 sim.ReleaseMoveOrder();
@@ -83,7 +88,7 @@ namespace SpaceShip
                 sim.gear = gear;
                 sim.gearSpan = span;
                 float thrustLevel = gear > 0 ? gear / (float)span : 0f;
-                sim.Step(Time.deltaTime, thrustLevel, 0f, turn);
+                sim.Step(Time.deltaTime, thrustLevel, 0f, turn, strafe);
             }
             else
             {

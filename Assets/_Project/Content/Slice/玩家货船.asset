@@ -15,41 +15,54 @@ MonoBehaviour:
   hull: {fileID: 11400000, guid: b2000000000000000000000000000001, type: 2}
   rooms:
   - room: {fileID: 11400000, guid: b2000000000000000000000000000003, type: 2}
-    x: 0
+    x: 3
     y: 2
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000002, type: 2}
-    x: 2
+    rotation: 0
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000003, type: 2}
+    x: 5
     y: 2
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000004, type: 2}
-    x: 8
-    y: 2
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000005, type: 2}
-    x: 4
-    y: 0
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000007, type: 2}
-    x: 6
+    rotation: 0
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000015, type: 2}
+    x: 5
     y: 1
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000008, type: 2}
-    x: 6
+    rotation: 0
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000015, type: 2}
+    x: 5
     y: 4
+    rotation: 2
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000006, type: 2}
+    x: 3
+    y: 1
+    rotation: 2
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000006, type: 2}
+    x: 3
+    y: 4
+    rotation: 0
   - room: {fileID: 11400000, guid: b2000000000000000000000000000009, type: 2}
     x: 7
     y: 4
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000006, type: 2}
-    x: 4
-    y: 4
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000014, type: 2}
-    x: 4
-    y: 1
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000014, type: 2}
-    x: 4
+    rotation: 0
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000002, type: 2}
+    x: 7
     y: 2
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000014, type: 2}
-    x: 4
-    y: 3
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000014, type: 2}
-    x: 8
-    y: 4
-  - room: {fileID: 11400000, guid: b2000000000000000000000000000015, type: 2}
+    rotation: 1
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000006, type: 2}
+    x: 9
+    y: 2
+    rotation: 1
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000004, type: 2}
+    x: 0
+    y: 2
+    rotation: 1
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000005, type: 2}
     x: 2
-    y: 4
+    y: 2
+    rotation: 1
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000005, type: 2}
+    x: 7
+    y: 1
+    rotation: 0
+  - room: {fileID: 11400000, guid: b2000000000000000000000000000009, type: 2}
+    x: 2
+    y: 1
+    rotation: 0

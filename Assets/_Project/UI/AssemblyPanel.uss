@@ -137,6 +137,18 @@
     position: absolute;
 }
 
+.fight-tag {
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    font-size: 18px;
+    color: rgb(255, 214, 204);
+    background-color: rgb(92, 28, 24);
+    border-width: 1px;
+    border-color: rgb(242, 120, 104);
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+
 .room-label {
     -unity-text-align: middle-center;
     -unity-font-style: bold;
@@ -328,7 +340,7 @@
     border-width: 1px;
     border-color: rgb(186, 198, 210);
     padding: 8px 10px 10px 10px;
-    max-width: 720px;
+    max-width: 220px;
 }
 
 .order-head {
@@ -350,17 +362,32 @@
     color: rgb(226, 228, 232);
 }
 
-.order-chip {
-    margin-right: 4px;
+.strategy-button {
     margin-bottom: 4px;
-    padding-left: 8px;
-    padding-right: 8px;
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    min-width: 112px;
     background-color: rgb(42, 48, 58);
     border-width: 1px;
     border-color: rgb(120, 130, 142);
     color: rgb(236, 238, 242);
+}
+
+.range-ring {
+    position: absolute;
+    background-color: rgba(120, 176, 214, 0.12);
+    border-width: 2px;
+    border-color: rgb(186, 214, 236);
+}
+
+.range-readout {
+    position: absolute;
+    font-size: 20px;
+    color: rgb(236, 238, 242);
+    -unity-font-style: bold;
+    white-space: nowrap;
 }
 
 .order-on {

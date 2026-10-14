@@ -10,19 +10,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1000000000000000000000000000004, type: 3}
-  m_Name: 导弹
+  m_Name: "\u5BFC\u5F39"
   m_EditorClassIdentifier: 
-  displayName: 导弹
-  muzzleSpeed: 36
+  displayName: "\u5BFC\u5F39"
+  muzzleSpeed: 300
+  cooldown: 0.8
   baseHit: 0.55
+  rangeHit: 0.25
   lockPerSecond: 0.5
   penetration: 1
   damage: 16
   homing: 1
   homingTurnRate: 140
-  boostTime: 1.5
-  lifetime: 8
-  range: 288
+  coastTime: 1
+  boostTime: 2
+  lifetime: 10
+  range: 800
   blastRadius: 1
   family: 2
   effect: 1

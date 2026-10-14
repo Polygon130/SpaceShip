@@ -29,13 +29,22 @@ namespace SpaceShip
         [Tooltip("两次射击之间的间隔，秒。")]
         public float cooldown = 0.8f;
 
-        [Tooltip("炮台基准命中，0 到 1。火炮最终命中 = 基准 × 操作者 × 横截 × 锁定。横截由距离和相对速度决定。操作者还没进战斗时按 1。")]
+        [Tooltip("炮台基准命中，0 到 1。火炮最终命中 = 基准 × 操作者 × 横截 × 锁定 × 距离衰减 × 近距加成。横截只看相对速度。操作者还没进战斗时按 1。")]
         [Range(0f, 1f)] public float baseHit = 0.75f;
+
+        [Tooltip("距离衰减。贴脸为 1，打到射程尽头时命中再乘这个数。越小，远距离越难打中。中间按距离线性下降。")]
+        [Range(0f, 1f)] public float rangeHit = 0.25f;
+
+        [Tooltip("近距加成。贴脸再乘这个数，到近距范围尽头降回 1。大于 1 才能把贴脸命中抬过基准。")]
+        [Range(1f, 3f)] public float closeHit = 1.5f;
+
+        [Tooltip("近距加成的作用距离，米。贴脸用满加成，到这个距离加成降到 1。")]
+        public float closeRange = 48f;
 
         [Tooltip("锁定进度每秒增加多少。突然改向或开关超频时，战斗逻辑会把锁定打回去。")]
         public float lockPerSecond = 0.35f;
 
-        [Tooltip("穿透值。每穿一格消耗一次，气阀关上的隔舱额外消耗。")]
+        [Tooltip("穿甲。炮弹逐格飞过。有装甲的格子消耗 1 点，装甲为 0 的格子不消耗。用完就停在这一格。还有剩余就飞出另一侧，可以打中后面的船。空格子按默认舱室的装甲算。")]
         public float penetration = 3f;
 
         [Tooltip("打进舱室时的结构伤害。导弹在爆炸半径里也用这个伤害。")]
@@ -47,7 +56,10 @@ namespace SpaceShip
         [Tooltip("追踪时每秒最多转过的角度。越大越咬得住，越小越容易冲出弯。")]
         public float homingTurnRate;
 
-        [Tooltip("导弹离舰后，从慢速加到最快速度要用的时间，秒。0 表示一出发就是最快。火炮不用这项。")]
+        [Tooltip("导弹离舰后先无动力滑行的时间，秒。这段只继承战舰当时的速度，不转向、不加速。0 表示一离舰就点火。火炮不用这项。")]
+        public float coastTime = 1f;
+
+        [Tooltip("导弹点火之后，加到最快速度要用的时间，秒。0 表示一点火就到最快。火炮不用这项。")]
         public float boostTime = 1.5f;
 
         [Tooltip("飞行超过这么多秒就自毁。0 表示不限时。")]

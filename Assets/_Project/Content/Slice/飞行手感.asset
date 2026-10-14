@@ -13,8 +13,7 @@ MonoBehaviour:
   m_Name: 飞行手感
   m_EditorClassIdentifier: 
   accelPerThrustOverMass: 32
-  velocityFollowTurn: 0.5
-  brakeAccel: 18
+  velocityFollowTurn: 0.102
   gearCount: 4
   gearRepeat: 0.5
   timeScale: 0.33333334

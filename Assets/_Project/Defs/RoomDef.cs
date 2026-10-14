@@ -32,6 +32,9 @@ namespace SpaceShip
         [Tooltip("在线时贡献的推力。加速度 = 在线推力 / 总质量 × 飞行手感系数。")]
         public float thrust;
 
+        [Tooltip("变速时间，秒。满出力速度 = 满档加速度 × 这个时间。低档的速度上限是满出力速度乘以这一档的百分比。从高出的速度收到上限，收掉一整份满出力速度要这么久。0 是不限速。")]
+        public float speedAdjustTime = 10f;
+
         [Tooltip("在线时贡献的热容量。超频和武器以后从这里扣。")]
         public float heatCapacity;
 
@@ -70,6 +73,7 @@ namespace SpaceShip
             }
             effectRange = Mathf.Max(0, effectRange);
             heatOutput = Mathf.Max(0f, heatOutput);
+            speedAdjustTime = Mathf.Max(0f, speedAdjustTime);
         }
     }
 }

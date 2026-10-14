@@ -25,7 +25,6 @@ namespace SpaceShip
             public VisualElement[] cells;
             public VisualElement[] hurt;
             public bool player;
-            public float iconAngle;
         }
 
         static VisualElement root;
@@ -51,11 +50,18 @@ namespace SpaceShip
         static readonly List<Vector2> smoothPoints = new List<Vector2>();
         static readonly List<Vector2> enemyOrbitPoints = new List<Vector2>();
         static readonly List<Vector2> enemySmoothPoints = new List<Vector2>();
+        static readonly List<Vector2> playerTrail = new List<Vector2>();
+        static readonly List<Vector2> enemyTrail = new List<Vector2>();
+        const float TrailSpacing = 4f;
+        const int TrailCap = 4000;
+        static float playerLineHold;
+        static float enemyLineHold;
         static float zoom = 1f;
         static float viewScale = PixelsPerMeter;
         static Vector2 cameraFocus;
         static float cameraRoll;
-        const float LockedScreenHeading = 180f;
+        static bool mapMode;
+        static float helmZoom = 1f;
         static bool enemySelected;
         enum TrackWho
         {
@@ -71,11 +77,7 @@ namespace SpaceShip
         static float lastEnemyClick = -1f;
         static int lastEnemyClickFrame = -1;
         static bool followPlayer = true;
-        static bool fArmed;
         static bool combatState;
-        static bool combatZooming;
-        static Vector2 combatZoomWorld;
-        static Vector2 combatZoomLocal;
         static CombatShip combatPivotShip;
         static bool zoomAnchorLive;
         static Vector2 zoomAnchorOffset;
@@ -83,8 +85,6 @@ namespace SpaceShip
         static bool detailMode;
         static Vector2 detailPan;
         static float mapZoom = 1f;
-        static Vector2 mapFocus;
-        static bool mapFollow = true;
         static bool panCandidate;
         static bool panDrag;
         static Vector2 panOrigin;
@@ -99,7 +99,18 @@ namespace SpaceShip
         static int menuClosedFrame = -1;
         static CombatSim bound;
         static VisualElement tagLayer;
+        static Label fightTag;
         static VisualElement orderMenu;
+        static VisualElement rangeRing;
+        static Label rangeReadout;
+        static bool rangePicking;
+        static ShipOrder rangeOrder;
+        static float rangeMeters = 40f;
+        static int rangeArmFrame = -1;
+        static int rangeHandledFrame = -1;
+        static int rangeCancelFrame = -1;
+        static Vector2 rangeAnchorLocal;
+        static bool rangeMoved;
         static Vector2 menuFieldAnchor;
         static readonly List<RoomTag> roomTags = new List<RoomTag>();
 
@@ -151,7 +162,10 @@ namespace SpaceShip
             {
                 if (!detailMode)
                     DismissOrderMenu();
-                ZoomStep(evt.delta.y < 0f ? 1 : -1, !detailMode, detailMode ? 0f : MapWheelMax);
+                Vector2 local = field.WorldToLocal(evt.mousePosition);
+                fieldPointerLocal = local;
+                pointerOverField = true;
+                ZoomStep(evt.delta.y < 0f ? 1 : -1, (mapMode || !followPlayer) && !detailMode, detailMode ? 0f : MapWheelMax, true, local);
                 evt.StopPropagation();
             });
             root.RegisterCallback<ContextualMenuPopulateEvent>(evt => evt.StopImmediatePropagation(), TrickleDown.TrickleDown);
@@ -188,15 +202,38 @@ namespace SpaceShip
             shotLayer = new VisualElement { pickingMode = PickingMode.Ignore };
             shotLayer.AddToClassList("shot-layer");
             field.Add(shotLayer);
+            rangeRing = new VisualElement { name = "range-ring", pickingMode = PickingMode.Ignore };
+            rangeRing.AddToClassList("range-ring");
+            rangeRing.style.display = DisplayStyle.None;
+            field.Add(rangeRing);
+            rangeReadout = new Label { pickingMode = PickingMode.Ignore };
+            rangeReadout.AddToClassList("range-readout");
+            rangeReadout.style.display = DisplayStyle.None;
+            field.Add(rangeReadout);
             playerWidget = BuildShip(sim.player);
             enemyWidget = BuildShip(sim.enemy);
             enemyHit = BuildEnemyHit();
             tagLayer = new VisualElement { name = "room-tags", pickingMode = PickingMode.Ignore };
             tagLayer.AddToClassList("shot-layer");
             field.Add(tagLayer);
+            fightTag = new Label("战斗") { pickingMode = PickingMode.Ignore };
+            fightTag.AddToClassList("fight-tag");
+            fightTag.style.position = Position.Absolute;
+            fightTag.style.display = DisplayStyle.None;
+            tagLayer.Add(fightTag);
             BuildTags(sim.player);
             BuildTags(sim.enemy);
             bound = sim;
+            mapMode = false;
+            detailMode = false;
+            lockHeading = false;
+            cameraRoll = 0f;
+            if (sim.player != null && !sim.player.destroyed)
+            {
+                cameraFocus = sim.player.position;
+                followPlayer = true;
+                trackWho = TrackWho.Player;
+            }
 
             hud = new Label { pickingMode = PickingMode.Ignore };
             hud.AddToClassList("combat-hud");
@@ -232,15 +269,19 @@ namespace SpaceShip
             smoothPoints.Clear();
             enemyOrbitPoints.Clear();
             enemySmoothPoints.Clear();
+            playerTrail.Clear();
+            enemyTrail.Clear();
+            playerLineHold = 0f;
+            enemyLineHold = 0f;
             planetMarks.Clear();
             zoom = 1f;
             viewScale = PixelsPerMeter;
             cameraFocus = Vector2.zero;
             cameraRoll = 0f;
+            mapMode = false;
+            helmZoom = 1f;
             followPlayer = true;
-            fArmed = false;
             combatState = false;
-            combatZooming = false;
             combatPivotShip = null;
             zoomAnchorLive = false;
             trackWho = TrackWho.Player;
@@ -250,8 +291,6 @@ namespace SpaceShip
             detailMode = false;
             detailPan = Vector2.zero;
             mapZoom = 1f;
-            mapFocus = Vector2.zero;
-            mapFollow = true;
             enemySelected = false;
             panCandidate = false;
             panDrag = false;
@@ -259,7 +298,11 @@ namespace SpaceShip
             shotMarks.Clear();
             roomTags.Clear();
             tagLayer = null;
+            fightTag = null;
             orderMenu = null;
+            rangeRing = null;
+            rangeReadout = null;
+            rangePicking = false;
             bound = null;
         }
 
@@ -268,46 +311,39 @@ namespace SpaceShip
             if (root == null || field == null || sim == null || field.panel == null)
                 return;
             combatState = sim.combat;
-            if (!combatState)
+            if (!combatState || !mapMode)
                 zoomAnchorLive = false;
+            CombatShip helmShip = sim.player != null && !sim.player.destroyed ? sim.player : null;
             CombatShip detailShip = null;
-            if (detailMode)
+            if (mapMode)
             {
-                detailShip = DetailShip(sim);
-                lockHeading = detailShip != null;
-                if (detailShip != null)
-                    cameraFocus = detailShip.position;
+                lockHeading = false;
+                cameraRoll = 0f;
+                ApplyTrack(sim);
+            }
+            else if (detailMode && helmShip != null)
+            {
+                lockHeading = true;
+                cameraRoll = HelmRoll(helmShip);
+                detailShip = helmShip;
+                cameraFocus = helmShip.position;
             }
             else
-                ApplyTrack(sim);
-            if (lockHeading && detailShip != null)
-                cameraRoll = LockedScreenHeading - detailShip.heading;
-            else if (!detailMode)
+            {
+                lockHeading = false;
                 cameraRoll = 0f;
+                if (followPlayer && helmShip != null)
+                    cameraFocus = helmShip.position;
+            }
             viewScale = PixelsPerMeter * zoom;
             if (detailShip != null)
                 ApplyDetailPan(detailShip);
-            if (!detailMode && combatZooming)
-            {
-                Vector2 world = combatPivotShip != null && !combatPivotShip.destroyed
-                    ? combatPivotShip.position
-                    : combatZoomWorld;
-                cameraFocus = FocusKeeping(world, combatZoomLocal);
-                RememberZoomAnchor(sim);
-                combatZooming = false;
-            }
             if (zoomLabel != null)
                 zoomLabel.text = ZoomText();
-            Vector2 viewHalf = ViewHalf();
-            Vector2 viewCenter = cameraFocus;
-            if (sim.player != null && !sim.player.destroyed)
-                sim.PredictCourse(sim.player, orbitPoints, viewCenter, viewHalf, sim.thrustLevel, true);
-            else
-                orbitPoints.Clear();
-            if (sim.enemy != null && !sim.enemy.destroyed)
-                sim.PredictCourse(sim.enemy, enemyOrbitPoints, viewCenter, viewHalf, sim.enemyThrust, sim.combat);
-            else
-                enemyOrbitPoints.Clear();
+            NoteTrail(sim.player, playerTrail);
+            NoteTrail(sim.enemy, enemyTrail);
+            ShowTrail(playerTrail, sim.player, orbitPoints);
+            ShowTrail(enemyTrail, sim.enemy, enemyOrbitPoints);
             RefreshCourse(orbitPoints, smoothPoints);
             RefreshCourse(enemyOrbitPoints, enemySmoothPoints);
             if (orbit != null)
@@ -317,6 +353,7 @@ namespace SpaceShip
             PlacePlanet(sim);
             PlaceShip(playerWidget, sim.player);
             PlaceShip(enemyWidget, sim.enemy);
+            PlaceFightTag(sim);
             PlaceEnemyHit();
             PlaceTags();
             PlaceShots(sim);
@@ -326,9 +363,17 @@ namespace SpaceShip
                 shotLayer.BringToFront();
             if (enemyHit != null)
                 enemyHit.BringToFront();
+            PlaceRangeRing();
             if (hud != null)
                 hud.text = Format(sim);
             PlaceAutoHint(sim);
+        }
+
+        static string OrderStatus(CombatSim sim)
+        {
+            if (sim.order == ShipOrder.Dock)
+                return "停靠";
+            return CombatSim.OrderLabel(sim.order) + " " + CombatSim.RangeLabel(sim.orderRange);
         }
 
         static void PlaceAutoHint(CombatSim sim)
@@ -339,7 +384,7 @@ namespace SpaceShip
             autoHint.style.display = auto ? DisplayStyle.Flex : DisplayStyle.None;
             if (!auto)
                 return;
-            autoHint.text = "自动驾驶  " + CombatSim.OrderLabel(sim.order) + " " + CombatSim.RangeLabel(sim.orderRange);
+            autoHint.text = "自动驾驶  " + OrderStatus(sim);
             autoHint.BringToFront();
             RefreshFireDock();
             if (fireDock != null)
@@ -393,6 +438,8 @@ namespace SpaceShip
                         cell.AddToClassList("cell-blocked");
                     else if (roomAt.floor.TryGetValue(key, out int index) && index < ship.build.rooms.Count)
                         cell.style.backgroundColor = ship.build.rooms[index].room.swatch;
+                    else if (hull.defaultCabin != null)
+                        cell.style.backgroundColor = hull.defaultCabin.swatch;
                     else
                         cell.AddToClassList("cell-empty");
                     widget.cells[key] = cell;
@@ -461,6 +508,24 @@ namespace SpaceShip
                 tagLayer.Add(label);
                 roomTags.Add(new RoomTag { label = label, ship = ship, index = i });
             }
+        }
+
+        static void PlaceFightTag(CombatSim sim)
+        {
+            if (fightTag == null)
+                return;
+            CombatShip ship = sim != null ? sim.enemy : null;
+            bool show = ship != null && !ship.destroyed && sim.enemyMarked;
+            fightTag.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!show)
+                return;
+            Vector2 local = Project(ship.position);
+            float half = IconSize * 0.5f;
+            if (!ShowIcon(ship) && ship.build != null && ship.build.hull != null)
+                half = ship.build.hull.height * CellPixels * zoom * 0.5f;
+            fightTag.style.left = local.x - 22f;
+            fightTag.style.top = local.y - half - 28f;
+            fightTag.BringToFront();
         }
 
         static void PlaceTags()
@@ -556,12 +621,10 @@ namespace SpaceShip
                 {
                     widget.marker.style.left = local.x - IconSize * 0.5f;
                     widget.marker.style.top = local.y - IconSize * 0.5f;
-                    widget.iconAngle = ship.heading + cameraRoll;
                     widget.marker.style.transformOrigin = new TransformOrigin(Length.Percent(50), Length.Percent(50), 0f);
                     widget.marker.style.scale = new Scale(Vector3.one);
-                    widget.marker.style.rotate = new Rotate(Angle.Degrees(0f));
+                    widget.marker.style.rotate = new Rotate(Angle.Degrees(ship.heading + cameraRoll));
                     widget.marker.style.opacity = ship.destroyed ? 0.35f : 1f;
-                    widget.marker.MarkDirtyRepaint();
                     widget.marker.BringToFront();
                 }
             }
@@ -592,20 +655,17 @@ namespace SpaceShip
         {
             var painter = ctx.painter2D;
             painter.fillColor = widget.player ? new Color(0.86f, 0.93f, 1f, 1f) : new Color(0.95f, 0.34f, 0.28f, 1f);
-            float rad = widget.iconAngle * Mathf.Deg2Rad;
-            float cos = Mathf.Cos(rad);
-            float sin = Mathf.Sin(rad);
-            Vector2 center = new Vector2(IconSize * 0.5f, IconSize * 0.5f);
-            Vector2 Turn(Vector2 point)
-            {
-                Vector2 delta = point - center;
-                return center + new Vector2(delta.x * cos - delta.y * sin, delta.x * sin + delta.y * cos);
-            }
-
+            const float pad = 1f;
+            float cx = IconSize * 0.5f;
+            float cy = IconSize * 0.5f;
+            float height = (cx - pad) * 1.5f;
+            float half = height / 1.7320508f;
+            Vector2 bow = new Vector2(cx, cy - height * (2f / 3f));
+            float baseY = cy + height / 3f;
             painter.BeginPath();
-            painter.MoveTo(Turn(new Vector2(IconSize * 0.5f, 1f)));
-            painter.LineTo(Turn(new Vector2(IconSize - 1f, IconSize - 1f)));
-            painter.LineTo(Turn(new Vector2(1f, IconSize - 1f)));
+            painter.MoveTo(bow);
+            painter.LineTo(new Vector2(cx + half, baseY));
+            painter.LineTo(new Vector2(cx - half, baseY));
             painter.ClosePath();
             painter.Fill();
         }
@@ -636,8 +696,17 @@ namespace SpaceShip
                         if (key < 0 || key >= widget.cells.Length || widget.cells[key] == null)
                             continue;
                         widget.cells[key].style.backgroundColor = color;
-                        PaintHurt(widget, ship, key);
                     }
+                }
+            }
+
+            for (int y = 0; y < hull.height; y++)
+            {
+                for (int x = 0; x < hull.width; x++)
+                {
+                    if (!hull.IsOpen(x, y))
+                        continue;
+                    PaintHurt(widget, ship, y * hull.width + x);
                 }
             }
         }
@@ -696,7 +765,7 @@ namespace SpaceShip
         {
             float width = field.resolvedStyle.width;
             float height = field.resolvedStyle.height;
-            if (width < 8f || height < 8f || viewScale < 0.01f)
+            if (float.IsNaN(width) || float.IsNaN(height) || width < 8f || height < 8f || viewScale < 0.01f)
                 return new Vector2(400f, 300f);
             const float pad = 64f;
             Vector2 half = new Vector2((width * 0.5f + pad) / viewScale, (height * 0.5f + pad) / viewScale);
@@ -709,7 +778,7 @@ namespace SpaceShip
             return half;
         }
 
-        static void ZoomStep(int direction, bool aroundPointer = false, float ceilingLimit = 0f)
+        static void ZoomStep(int direction, bool aroundPointer = false, float ceilingLimit = 0f, bool hasPointer = false, Vector2 pointerLocal = default)
         {
             if (bound != null)
                 combatState = bound.combat;
@@ -739,35 +808,59 @@ namespace SpaceShip
                 }
             }
 
+            if (mapMode && direction < 0 && next <= MinZoom + 0.001f && TryZoomPointer(hasPointer, pointerLocal, out Vector2 minAim))
+            {
+                CombatShip wide = NearestShip(minAim);
+                if (wide != null)
+                {
+                    if (Mathf.Abs(next - zoom) >= 0.001f)
+                    {
+                        zoom = next;
+                        viewScale = PixelsPerMeter * zoom;
+                    }
+
+                    BeginTrack(wide == bound.enemy ? TrackWho.Enemy : TrackWho.Player);
+                    cameraFocus = wide.position;
+                    zoomAnchorOffset = Vector2.zero;
+                    zoomAnchorLive = false;
+                    combatPivotShip = wide;
+                    if (zoomLabel != null)
+                        zoomLabel.text = ZoomText();
+                    return;
+                }
+            }
+
             if (Mathf.Abs(next - zoom) < 0.001f)
                 return;
-            bool tracking = !detailMode && trackWho != TrackWho.None && trackGrade > 0;
-            Vector2 pivotWorld = Vector2.zero;
-            Vector2 pivotLocal = Vector2.zero;
-            bool pivot = false;
-            if (combatState && !detailMode)
-                pivot = TryCombatPivot(out pivotWorld, out pivotLocal);
+            if (combatState && mapMode && TryZoomPointer(hasPointer, pointerLocal, out Vector2 aim))
+            {
+                CombatShip ship = NearestShip(aim);
+                if (ship != null)
+                {
+                    Vector2 screen = Project(ship.position);
+                    Vector2 shipAt = ship.position;
+                    zoom = next;
+                    viewScale = PixelsPerMeter * zoom;
+                    cameraFocus = FocusKeeping(shipAt, screen);
+                    combatPivotShip = ship;
+                    zoomAnchorOffset = cameraFocus - shipAt;
+                    zoomAnchorLive = true;
+                    if (zoomLabel != null)
+                        zoomLabel.text = ZoomText();
+                    return;
+                }
+            }
 
+            bool tracking = mapMode && trackWho != TrackWho.None && trackGrade > 0;
             Vector2 pointer = Vector2.zero;
             Vector2 world = Vector2.zero;
-            bool anchor = !pivot && aroundPointer && !tracking && TryMouseFieldLocal(out pointer);
+            bool anchor = aroundPointer && !tracking && TryMouseFieldLocal(out pointer);
             if (anchor)
                 world = Unproject(pointer);
             zoom = next;
             viewScale = PixelsPerMeter * zoom;
-            if (pivot)
+            if (anchor)
             {
-                combatZooming = true;
-                if (combatPivotShip != null && !combatPivotShip.destroyed)
-                    pivotWorld = combatPivotShip.position;
-                combatZoomWorld = pivotWorld;
-                combatZoomLocal = pivotLocal;
-                cameraFocus = FocusKeeping(pivotWorld, pivotLocal);
-                RememberZoomAnchor(bound);
-            }
-            else if (anchor)
-            {
-                combatZooming = false;
                 followPlayer = false;
                 cameraFocus = FocusKeeping(world, pointer);
             }
@@ -776,45 +869,47 @@ namespace SpaceShip
                 zoomLabel.text = ZoomText();
         }
 
-        static string ZoomText()
+        static bool TryZoomPointer(bool hasPointer, Vector2 pointerLocal, out Vector2 pointer)
         {
-            float percent = zoom * 100f;
-            if (Mathf.Abs(percent - Mathf.Round(percent)) < 0.05f)
-                return Mathf.RoundToInt(percent) + "%";
-            return percent.ToString("0.0") + "%";
-        }
-
-        static bool TryCombatPivot(out Vector2 world, out Vector2 local)
-        {
-            world = Vector2.zero;
-            local = Vector2.zero;
-            combatPivotShip = null;
-            if (bound == null)
-                return false;
-            if (bound.player != null && !bound.player.destroyed && ShipOnScreen(bound.player))
+            if (hasPointer)
             {
-                combatPivotShip = bound.player;
-                world = bound.player.position;
-                local = Project(world);
+                pointer = pointerLocal;
                 return true;
             }
 
+            if (TryMouseFieldLocal(out pointer))
+                return true;
+            if (pointerOverField)
+            {
+                pointer = fieldPointerLocal;
+                return true;
+            }
+
+            if (field == null)
+            {
+                pointer = Vector2.zero;
+                return false;
+            }
+
+            pointer = field.WorldToLocal(field.worldBound.center);
+            return true;
+        }
+
+        static CombatShip NearestShip(Vector2 pointer)
+        {
             CombatShip best = null;
             float bestSq = float.PositiveInfinity;
-            Vector2 origin = bound.player != null ? bound.player.position : Vector2.zero;
-            ConsiderEnemy(bound.enemy);
-            if (best == null)
-                return false;
-            combatPivotShip = best;
-            world = best.position;
-            local = Project(world);
-            return true;
+            if (bound == null)
+                return null;
+            Consider(bound.player);
+            Consider(bound.enemy);
+            return best;
 
-            void ConsiderEnemy(CombatShip ship)
+            void Consider(CombatShip ship)
             {
-                if (ship == null || ship.destroyed || !ShipOnScreen(ship))
+                if (ship == null || ship.destroyed)
                     return;
-                float sq = (ship.position - origin).sqrMagnitude;
+                float sq = (Project(ship.position) - pointer).sqrMagnitude;
                 if (sq >= bestSq)
                     return;
                 bestSq = sq;
@@ -822,54 +917,12 @@ namespace SpaceShip
             }
         }
 
-        static bool ShipOnScreen(CombatShip ship)
+        static string ZoomText()
         {
-            if (ship == null || field == null)
-                return false;
-            Vector2 local = Project(ship.position);
-            float halfW;
-            float halfH;
-            if (ShowIcon(ship))
-            {
-                halfW = IconSize * 0.5f;
-                halfH = IconSize * 0.5f;
-            }
-            else
-            {
-                ShipScreenSpan(ship, out float boxW, out float boxH);
-                halfW = boxW * 0.5f;
-                halfH = boxH * 0.5f;
-            }
-
-            float width = field.resolvedStyle.width;
-            float height = field.resolvedStyle.height;
-            if (float.IsNaN(width) || width < 8f)
-                width = field.worldBound.width;
-            if (float.IsNaN(height) || height < 8f)
-                height = field.worldBound.height;
-            const float pad = 48f;
-            return local.x + halfW >= -pad && local.y + halfH >= -pad
-                && local.x - halfW <= width + pad && local.y - halfH <= height + pad;
-        }
-
-        static void RememberZoomAnchor(CombatSim sim)
-        {
-            CombatShip target = TrackTarget(sim);
-            if (target == null || target.destroyed || trackWho == TrackWho.None || trackGrade <= 0)
-            {
-                zoomAnchorLive = false;
-                return;
-            }
-
-            zoomAnchorOffset = cameraFocus - target.position;
-            zoomAnchorLive = true;
-        }
-
-        static CombatShip TrackTarget(CombatSim sim)
-        {
-            if (sim == null || trackWho == TrackWho.None)
-                return null;
-            return trackWho == TrackWho.Enemy ? sim.enemy : sim.player;
+            float percent = zoom * 100f;
+            if (Mathf.Abs(percent - Mathf.Round(percent)) < 0.05f)
+                return Mathf.RoundToInt(percent) + "%";
+            return percent.ToString("0.0") + "%";
         }
 
         static Vector2 Project(Vector2 world)
@@ -975,19 +1028,49 @@ namespace SpaceShip
             boxH = w * s + h * c;
         }
 
+        static void KeepLine(bool live, List<Vector2> source, List<Vector2> smooth, ref float hold)
+        {
+            if (live)
+            {
+                hold = 0.25f;
+                RefreshCourse(source, smooth);
+                return;
+            }
+
+            hold -= Time.deltaTime;
+            if (hold <= 0f)
+                smooth.Clear();
+        }
+
         static void RefreshCourse(List<Vector2> source, List<Vector2> smooth)
         {
             smooth.Clear();
             if (source.Count < 2)
                 return;
             float spacing = Mathf.Max(1.5f, ViewHalf().magnitude / 28f);
-            smooth.Add(source[0]);
+            int origin = 0;
+            while (origin < source.Count && float.IsNaN(source[origin].x))
+                origin++;
+            if (origin >= source.Count)
+                return;
+            smooth.Add(source[origin]);
             Vector2 lastDir = Vector2.zero;
             bool hasDir = false;
             float since = 0f;
-            for (int i = 1; i < source.Count; i++)
+            for (int i = origin + 1; i < source.Count; i++)
             {
-                Vector2 step = source[i] - source[i - 1];
+                if (float.IsNaN(source[i].x))
+                {
+                    smooth.Add(source[i]);
+                    hasDir = false;
+                    since = 0f;
+                    continue;
+                }
+
+                int previous = i - 1;
+                while (previous > origin && float.IsNaN(source[previous].x))
+                    previous--;
+                Vector2 step = source[i] - source[previous];
                 float length = step.magnitude;
                 if (length < 0.0001f)
                     continue;
@@ -1001,12 +1084,102 @@ namespace SpaceShip
                 lastDir = dir;
                 hasDir = true;
                 since = 0f;
-                if (smooth.Count >= 240 && !last)
+                if (smooth.Count >= 800 && !last)
                 {
                     smooth.Add(source[source.Count - 1]);
                     break;
                 }
             }
+        }
+
+        static void NoteTrail(CombatShip ship, List<Vector2> trail)
+        {
+            if (ship == null || ship.destroyed || float.IsNaN(ship.position.x))
+                return;
+            if (trail.Count == 0)
+            {
+                trail.Add(ship.position);
+                return;
+            }
+
+            Vector2 last = trail[trail.Count - 1];
+            if ((ship.position - last).sqrMagnitude < TrailSpacing * TrailSpacing)
+                return;
+            trail.Add(ship.position);
+            if (trail.Count > TrailCap)
+                trail.RemoveAt(0);
+        }
+
+        static void ShowTrail(List<Vector2> trail, CombatShip ship, List<Vector2> into)
+        {
+            into.Clear();
+            if (trail.Count == 0)
+                return;
+            Vector2 half = ViewHalf();
+            Vector2 min = cameraFocus - half;
+            Vector2 max = cameraFocus + half;
+            for (int i = 1; i < trail.Count; i++)
+                AppendTrailSegment(into, trail[i - 1], trail[i], min, max);
+            if (ship != null && !ship.destroyed)
+                AppendTrailSegment(into, trail[trail.Count - 1], ship.position, min, max);
+        }
+
+        static void AppendTrailSegment(List<Vector2> into, Vector2 a, Vector2 b, Vector2 min, Vector2 max)
+        {
+            if (!ClipTrail(a, b, min, max, out Vector2 c, out Vector2 d))
+                return;
+            if (into.Count == 0 || float.IsNaN(into[into.Count - 1].x) || (into[into.Count - 1] - c).sqrMagnitude > 1f)
+            {
+                if (into.Count > 0 && !float.IsNaN(into[into.Count - 1].x))
+                    into.Add(new Vector2(float.NaN, 0f));
+                into.Add(c);
+            }
+
+            if ((c - d).sqrMagnitude > 0.01f)
+                into.Add(d);
+        }
+
+        static bool ClipTrail(Vector2 a, Vector2 b, Vector2 min, Vector2 max, out Vector2 c, out Vector2 d)
+        {
+            float t0 = 0f;
+            float t1 = 1f;
+            Vector2 delta = b - a;
+            c = a;
+            d = b;
+            if (!ClipTrailSide(-delta.x, a.x - min.x, ref t0, ref t1))
+                return false;
+            if (!ClipTrailSide(delta.x, max.x - a.x, ref t0, ref t1))
+                return false;
+            if (!ClipTrailSide(-delta.y, a.y - min.y, ref t0, ref t1))
+                return false;
+            if (!ClipTrailSide(delta.y, max.y - a.y, ref t0, ref t1))
+                return false;
+            c = a + delta * t0;
+            d = a + delta * t1;
+            return true;
+        }
+
+        static bool ClipTrailSide(float p, float q, ref float t0, ref float t1)
+        {
+            if (Mathf.Abs(p) < 0.0000001f)
+                return q >= 0f;
+            float t = q / p;
+            if (p < 0f)
+            {
+                if (t > t1)
+                    return false;
+                if (t > t0)
+                    t0 = t;
+            }
+            else
+            {
+                if (t < t0)
+                    return false;
+                if (t < t1)
+                    t1 = t;
+            }
+
+            return true;
         }
 
         static void DrawOrbit(MeshGenerationContext context)
@@ -1021,18 +1194,31 @@ namespace SpaceShip
 
         static void DrawCourse(MeshGenerationContext context, List<Vector2> points, Color color)
         {
-            int n = points.Count;
-            if (n < 2)
+            if (points.Count < 2)
                 return;
             Painter2D painter = context.painter2D;
             painter.lineWidth = 2.4f;
             painter.lineCap = LineCap.Round;
             painter.lineJoin = LineJoin.Round;
-            int fade = Mathf.Min(10, n - 1);
-            int mid = Mathf.Min(18, n - 1);
-            StrokeSoft(painter, points, color, 0, fade, 0.34f);
-            StrokeSoft(painter, points, color, fade, mid, 0.68f);
-            StrokeSoft(painter, points, color, mid, n - 1, 0.9f);
+            int start = 0;
+            for (int i = 0; i <= points.Count; i++)
+            {
+                bool split = i == points.Count || float.IsNaN(points[i].x);
+                if (!split)
+                    continue;
+                int last = i - 1;
+                if (last - start >= 1)
+                {
+                    int span = last - start;
+                    int fade = Mathf.Min(10, span);
+                    int mid = Mathf.Min(18, span);
+                    StrokeSoft(painter, points, color, start, start + fade, 0.34f);
+                    StrokeSoft(painter, points, color, start + fade, start + mid, 0.68f);
+                    StrokeSoft(painter, points, color, start + mid, last, 0.9f);
+                }
+
+                start = i + 1;
+            }
         }
 
         static void StrokeSoft(Painter2D painter, List<Vector2> points, Color color, int from, int to, float alpha)
@@ -1080,27 +1266,35 @@ namespace SpaceShip
             text += HeatLine(sim.player);
             string driveText = "空档";
             if (sim.order != ShipOrder.Manual)
-                driveText = CombatSim.OrderLabel(sim.order) + " " + CombatSim.RangeLabel(sim.orderRange);
+                driveText = OrderStatus(sim);
             else if (sim.gear > 0)
                 driveText = "推进 " + sim.gear + "/" + sim.gearSpan;
             text += "\n" + driveText + "    " + sim.FireStatus();
-            text += "\n点一下切一档。按住 W 加档，按住 S 减到空档。没有倒车，反向要先转 180 度。\n左键点选敌船，方框里右键可下跟踪 平行 环绕 脱离。双击敌船，镜头跟着敌船。右边可开关全部、能量、火炮、导弹。按 W S A D 回到手动。";
-            if (sim.combat)
-                text += "\n" + sim.CombatNotice() + "。画面有玩家就对着玩家缩放，没有就对着最近的敌船。";
-            if (detailMode && detailPan.sqrMagnitude > 4f)
-                text += "\n船头保持，画面已挪开。再按空格 回到大画面。";
+            text += "\n点一下切一档。按住 W 加档，按住 S 减到空档。没有倒车，反向要先转 180 度。\n左键点选敌船，方框里右键可下追击 平行 环绕 停靠 脱离。点策略后拉动圆框，再点一下确认，半径就是距离。停靠不拉圆框，碰上后贴到一起再锁住，按质量大的那艘走。大地图里双击敌船，镜头跟着敌船。右边可开关全部、能量、火炮、导弹，这些开关不退出自动驾驶。Q 向左平移，E 向右平移。自动驾驶由电脑使用侧推。按 W S A D Q E 回到手动。";
+            if (rangePicking)
+                text += "\n" + CombatSim.OrderLabel(rangeOrder) + "  半径 " + CombatSim.RangeLabel(rangeMeters) + "。再点一下确认，右键取消。";
+            if (sim.combat && mapMode)
+                text += "\n" + sim.CombatNotice() + "。每次缩放都按鼠标离哪艘船更近，以那艘船此刻的位置为中心。";
+            else if (sim.combat)
+                text += "\n" + sim.CombatNotice() + "。";
+            if (mapMode && trackWho == TrackWho.Enemy && trackGrade > 0)
+                text += "\n大地图。镜头跟着敌船。按空格回到我方舰船。拖动画面会松开。再按 M 回到开船。";
+            else if (mapMode && (followPlayer || (trackWho == TrackWho.Player && trackGrade > 0)))
+                text += "\n大地图。按空格镜头回到我方舰船。拖动画面会松开。再按 M 回到开船。";
+            else if (mapMode)
+                text += "\n大地图。画面已拖开。按空格回到我方舰船。再按 M 回到开船。";
+            else if (detailMode && detailPan.sqrMagnitude > 4f)
+                text += "\n画面已挪开。船头保持向右。再按空格缩小回来。";
             else if (detailMode)
-                text += "\n已放大，船头保持。按住左键只挪画面。再按空格 回到大画面。";
-            else if (trackWho == TrackWho.Enemy && trackGrade > 0)
-                text += "\n镜头跟着敌船。再按空格 放大，船头保持。拖动画面会松开。";
-            else if (followPlayer || (trackWho == TrackWho.Player && trackGrade > 0))
-                text += "\n按住左键拖动画面。没有选中按空格 跟玩家，选中按空格 跟着敌船。再按空格 放大，船头保持。";
+                text += "\n已放大看舱室。船头保持向右。按住左键只挪画面。再按空格缩小回来。";
+            else if (!followPlayer)
+                text += "\n画面已拖开，不再跟着船。按住左键继续拖。按空格放大看舱室，再按一次缩小并回到我方舰船。按 M 打开大地图。";
             else
-                text += "\n画面已拖开。没有选中按空格 跟玩家，选中按空格 跟着敌船。";
+                text += "\n开船。按住左键拖动画面，拖开后不再跟着船。按空格放大看舱室，再按一次缩小回来。按 M 打开大地图。";
             text += "\n滚轮或右上角加减缩放。滚轮放大到 500%。缩到看不清时船改成三角标记，标记不缩放。";
             if (detailMode)
                 text += "\n放大后看舱室。缩小不超过 10%，放大可以到 3200%。";
-            text += "\n200% 以上看见舱室。\n白线玩家航迹，红线敌船航迹。弯度跟船头和档位走。";
+            text += "\n200% 以上看见舱室。\n白线是玩家走过的航迹，红线是敌船走过的航迹。";
             return text;
         }
 
@@ -1113,22 +1307,44 @@ namespace SpaceShip
             Vector2 panPoint = RuntimePanelUtils.ScreenToPanel(field.panel, Input.mousePosition);
             bool inField = field.worldBound.Contains(panel);
             Vector2 pointer = inField ? field.WorldToLocal(panel) : Vector2.zero;
+            if (rangePicking && (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.E)))
+                EndRangePick();
             if (Input.GetMouseButtonDown(0))
             {
-                bool menuHit = PointerOnMenu();
-                bool dockHit = PointerOnFireDock();
-                bool onBox = PointerOnEnemyBox();
-                panCandidate = !menuHit && !dockHit && inField && (!onBox || orderMenu != null);
+                if (PointerOnFireDock())
+                {
+                    panDrag = false;
+                    panCandidate = false;
+                }
+                else
+                {
+                bool arming = rangePicking && Time.frameCount == rangeArmFrame;
+                bool sizing = rangePicking && !arming && rangeHandledFrame != Time.frameCount && !PointerOnFireDock();
                 panDrag = false;
                 panOrigin = panPoint;
                 panLast = panPoint;
-                if (onBox && !menuHit && !dockHit)
+                if (arming || rangeHandledFrame == Time.frameCount)
+                    panCandidate = false;
+                else if (sizing)
                 {
-                    enemySelected = true;
-                    NoteEnemyClick();
+                    TakeRangeClick();
+                    panCandidate = false;
                 }
-                else if (!menuHit && !dockHit && inField)
-                    enemySelected = false;
+                else
+                {
+                    bool menuHit = PointerOnMenu();
+                    bool dockHit = PointerOnFireDock();
+                    bool onBox = PointerOnEnemyBox();
+                    panCandidate = !menuHit && !dockHit && inField && (!onBox || orderMenu != null);
+                    if (onBox && !menuHit && !dockHit)
+                    {
+                        enemySelected = true;
+                        NoteEnemyClick();
+                    }
+                    else if (!menuHit && !dockHit && inField)
+                        enemySelected = false;
+                }
+                }
             }
             else if (Input.GetMouseButton(0) && panCandidate)
             {
@@ -1138,13 +1354,14 @@ namespace SpaceShip
                     {
                         panDrag = true;
                         DismissOrderMenu();
+                        EndRangePick();
                         if (!detailMode)
                         {
                             followPlayer = false;
                             trackWho = TrackWho.None;
                             trackGrade = 0;
-                            fArmed = false;
                             zoomAnchorLive = false;
+                            combatPivotShip = null;
                             lockHeading = false;
                             cameraRoll = 0f;
                         }
@@ -1175,7 +1392,9 @@ namespace SpaceShip
 
             if (Input.GetMouseButtonDown(1) && !PointerOnFireDock())
             {
-                if (orderMenu != null && enemyMenuFrame != Time.frameCount)
+                if (rangePicking)
+                    EndRangePick();
+                else if (orderMenu != null && enemyMenuFrame != Time.frameCount)
                     DismissOrderMenu();
                 else if (orderMenu == null && PointerOnEnemyBox())
                 {
@@ -1188,69 +1407,150 @@ namespace SpaceShip
             {
                 panDrag = false;
                 panCandidate = false;
-                if (detailMode)
-                {
-                    ExitDetail();
-                }
+                if (mapMode)
+                    SnapMapToPlayer();
+                else if (detailMode)
+                    ExitCabin();
                 else
-                {
-                    TrackWho desired = enemySelected && bound.enemy != null && !bound.enemy.destroyed
-                        ? TrackWho.Enemy
-                        : TrackWho.Player;
-                    bool already = fArmed && trackWho == desired && trackGrade >= TrackGrades;
-                    if (already)
-                        EnterDetail();
-                    else if (desired == TrackWho.Enemy)
-                    {
-                        fArmed = true;
-                        BeginTrack(TrackWho.Enemy);
-                        lockHeading = false;
-                        cameraRoll = 0f;
-                        cameraFocus = bound.enemy.position;
-                    }
-                    else
-                    {
-                        fArmed = true;
-                        BeginTrack(TrackWho.Player);
-                        followPlayer = true;
-                        lockHeading = false;
-                        cameraRoll = 0f;
-                        if (bound.player != null)
-                            cameraFocus = bound.player.position;
-                    }
-                }
+                    EnterCabin();
+            }
+
+            if (Input.GetKeyDown(KeyCode.M))
+            {
+                panDrag = false;
+                panCandidate = false;
+                if (mapMode)
+                    LeaveMap();
+                else
+                    EnterMap();
             }
         }
 
-        static void EnterDetail()
+        static float HelmRoll(CombatShip ship)
         {
-            mapZoom = zoom;
-            mapFocus = cameraFocus;
-            mapFollow = followPlayer;
-            detailMode = true;
-            lockHeading = true;
-            zoomAnchorLive = false;
-            detailPan = Vector2.zero;
-            CombatShip target = DetailShip(bound);
+            if (ship == null)
+                return 0f;
+            return 90f - BowClockwise(ship) - ship.heading;
+        }
+
+        static float BowClockwise(CombatShip ship)
+        {
+            if (!TryKindCenter(ship, RoomKind.Bridge, out Vector2 bridge))
+                return 0f;
+            if (!TryKindCenter(ship, RoomKind.Thruster, out Vector2 stern))
+                return 0f;
+            Vector2 bow = bridge - stern;
+            if (bow.sqrMagnitude < 0.25f)
+                return 0f;
+            return Mathf.Atan2(bow.x, bow.y) * Mathf.Rad2Deg;
+        }
+
+        static bool TryKindCenter(CombatShip ship, RoomKind kind, out Vector2 center)
+        {
+            center = Vector2.zero;
+            if (ship == null || ship.build == null)
+                return false;
+            Vector2 sum = Vector2.zero;
+            int count = 0;
+            for (int i = 0; i < ship.build.rooms.Count; i++)
+            {
+                RoomPlacement placement = ship.build.rooms[i];
+                if (placement == null || placement.room == null || placement.room.kind != kind)
+                    continue;
+                sum.x += placement.x + placement.SpanX * 0.5f;
+                sum.y += placement.y + placement.SpanY * 0.5f;
+                count++;
+            }
+
+            if (count == 0)
+                return false;
+            center = sum / count;
+            return true;
+        }
+
+        static void EnterCabin()
+        {
+            CombatShip target = bound != null && bound.player != null && !bound.player.destroyed ? bound.player : null;
             if (target == null)
                 return;
-            followPlayer = bound.player != null && target == bound.player;
+            helmZoom = zoom;
+            EndRangePick();
+            detailMode = true;
+            lockHeading = true;
+            cameraRoll = HelmRoll(target);
+            zoomAnchorLive = false;
+            detailPan = Vector2.zero;
+            followPlayer = true;
+            trackWho = TrackWho.Player;
             cameraFocus = target.position;
             zoom = ZoomToFit(target);
             detailFloor = zoom * 0.9f;
             viewScale = PixelsPerMeter * zoom;
         }
 
-        static void ExitDetail()
+        static void ExitCabin()
         {
             detailMode = false;
+            detailPan = Vector2.zero;
+            zoom = helmZoom;
             lockHeading = false;
             cameraRoll = 0f;
-            detailPan = Vector2.zero;
-            zoom = mapZoom;
-            cameraFocus = mapFocus;
-            followPlayer = mapFollow;
+            followPlayer = true;
+            trackWho = TrackWho.Player;
+            trackGrade = TrackGrades;
+            zoomAnchorLive = false;
+            if (bound != null && bound.player != null)
+                cameraFocus = bound.player.position;
             viewScale = PixelsPerMeter * zoom;
+        }
+
+        static void EnterMap()
+        {
+            if (detailMode)
+                ExitCabin();
+            helmZoom = zoom;
+            mapMode = true;
+            detailMode = false;
+            detailPan = Vector2.zero;
+            lockHeading = false;
+            cameraRoll = 0f;
+            zoomAnchorLive = false;
+            zoom = mapZoom;
+            viewScale = PixelsPerMeter * zoom;
+            followPlayer = true;
+            trackWho = TrackWho.Player;
+            trackGrade = TrackGrades;
+            if (bound != null && bound.player != null)
+                cameraFocus = bound.player.position;
+        }
+
+        static void LeaveMap()
+        {
+            mapZoom = zoom;
+            mapMode = false;
+            detailMode = false;
+            detailPan = Vector2.zero;
+            lockHeading = false;
+            cameraRoll = 0f;
+            zoomAnchorLive = false;
+            zoom = helmZoom;
+            followPlayer = true;
+            trackWho = TrackWho.Player;
+            trackGrade = TrackGrades;
+            if (bound != null && bound.player != null)
+                cameraFocus = bound.player.position;
+            viewScale = PixelsPerMeter * zoom;
+        }
+
+        static void SnapMapToPlayer()
+        {
+            lockHeading = false;
+            cameraRoll = 0f;
+            zoomAnchorLive = false;
+            BeginTrack(TrackWho.Player);
+            followPlayer = true;
+            if (bound != null && bound.player != null)
+                cameraFocus = bound.player.position;
         }
 
         static float ZoomToFit(CombatShip ship)
@@ -1278,6 +1578,12 @@ namespace SpaceShip
             {
                 if (evt.button == (int)MouseButton.LeftMouse)
                 {
+                    if (ConsumeRangeClick())
+                    {
+                        evt.StopPropagation();
+                        return;
+                    }
+
                     enemySelected = true;
                     NoteEnemyClick();
                     evt.StopPropagation();
@@ -1286,6 +1592,12 @@ namespace SpaceShip
 
                 if (evt.button != (int)MouseButton.RightMouse)
                     return;
+                if (rangePicking)
+                {
+                    EndRangePick();
+                    evt.StopPropagation();
+                    return;
+                }
                 if (orderMenu != null && enemyMenuFrame != Time.frameCount)
                     DismissOrderMenu();
                 else
@@ -1299,6 +1611,12 @@ namespace SpaceShip
             {
                 if (evt.button == 0)
                 {
+                    if (ConsumeRangeClick())
+                    {
+                        evt.StopPropagation();
+                        return;
+                    }
+
                     enemySelected = true;
                     NoteEnemyClick();
                     evt.StopPropagation();
@@ -1307,6 +1625,12 @@ namespace SpaceShip
 
                 if (evt.button != 1 && (evt.pressedButtons & 2) == 0)
                     return;
+                if (rangePicking)
+                {
+                    EndRangePick();
+                    evt.StopPropagation();
+                    return;
+                }
                 if (orderMenu != null && enemyMenuFrame != Time.frameCount)
                     DismissOrderMenu();
                 else
@@ -1318,6 +1642,12 @@ namespace SpaceShip
             }, TrickleDown.TrickleDown);
             hit.RegisterCallback<ContextualMenuPopulateEvent>(evt =>
             {
+                if (rangePicking)
+                {
+                    EndRangePick();
+                    evt.StopImmediatePropagation();
+                    return;
+                }
                 enemySelected = true;
                 OpenEnemyMenu(HitCenter());
                 evt.StopImmediatePropagation();
@@ -1389,7 +1719,7 @@ namespace SpaceShip
 
         static void OpenEnemyMenu(Vector2 fieldLocal)
         {
-            if (Time.frameCount == enemyMenuFrame || Time.frameCount == menuClosedFrame)
+            if (Time.frameCount == enemyMenuFrame || Time.frameCount == menuClosedFrame || Time.frameCount == rangeCancelFrame)
                 return;
             enemyMenuFrame = Time.frameCount;
             ShowOrderMenu(fieldLocal);
@@ -1424,22 +1754,13 @@ namespace SpaceShip
                 && local.y >= enemyBox.yMin && local.y <= enemyBox.yMax;
         }
 
-        static CombatShip DetailShip(CombatSim sim)
-        {
-            if (sim == null)
-                return null;
-            if (trackWho == TrackWho.Enemy && sim.enemy != null && !sim.enemy.destroyed)
-                return sim.enemy;
-            return sim.player != null && !sim.player.destroyed ? sim.player : null;
-        }
-
         static void NoteEnemyClick()
         {
             if (lastEnemyClickFrame == Time.frameCount)
                 return;
             lastEnemyClickFrame = Time.frameCount;
             float now = Time.unscaledTime;
-            if (now - lastEnemyClick <= 0.35f && bound != null && bound.enemy != null && !bound.enemy.destroyed)
+            if (mapMode && now - lastEnemyClick <= 0.35f && bound != null && bound.enemy != null && !bound.enemy.destroyed)
                 BeginTrack(TrackWho.Enemy);
             lastEnemyClick = now;
         }
@@ -1459,6 +1780,18 @@ namespace SpaceShip
 
         static void ApplyTrack(CombatSim sim)
         {
+            if (zoomAnchorLive && combatState)
+            {
+                if (combatPivotShip != null && !combatPivotShip.destroyed)
+                {
+                    cameraFocus = combatPivotShip.position + zoomAnchorOffset;
+                    return;
+                }
+
+                zoomAnchorLive = false;
+                combatPivotShip = null;
+            }
+
             if (trackWho == TrackWho.None || trackGrade <= 0 || sim == null)
                 return;
             CombatShip target = trackWho == TrackWho.Enemy ? sim.enemy : sim.player;
@@ -1468,12 +1801,6 @@ namespace SpaceShip
                 trackGrade = 0;
                 followPlayer = false;
                 zoomAnchorLive = false;
-                return;
-            }
-
-            if (zoomAnchorLive && combatState)
-            {
-                cameraFocus = target.position + zoomAnchorOffset;
                 return;
             }
 
@@ -1566,57 +1893,153 @@ namespace SpaceShip
             var head = new Label("玩家策略");
             head.AddToClassList("order-head");
             menu.Add(head);
-            menu.Add(MoveRow(ShipOrder.Manual, "手动", false));
-            menu.Add(MoveRow(ShipOrder.Track, "跟踪", true));
-            menu.Add(MoveRow(ShipOrder.Parallel, "平行", true));
-            menu.Add(MoveRow(ShipOrder.Orbit, "环绕", true));
-            menu.Add(MoveRow(ShipOrder.BreakOff, "脱离", true));
+            menu.Add(StrategyButton(ShipOrder.Manual, "手动"));
+            menu.Add(StrategyButton(ShipOrder.Track, "追击"));
+            menu.Add(StrategyButton(ShipOrder.Parallel, "平行"));
+            menu.Add(StrategyButton(ShipOrder.Orbit, "环绕"));
+            menu.Add(StrategyButton(ShipOrder.Dock, "停靠"));
+            menu.Add(StrategyButton(ShipOrder.BreakOff, "脱离"));
             return menu;
         }
 
-        static VisualElement MoveRow(ShipOrder kind, string title, bool distances)
+        static Button StrategyButton(ShipOrder kind, string title)
         {
-            var row = new VisualElement();
-            row.AddToClassList("order-row");
-            var name = new Label(title);
-            name.AddToClassList("order-name");
-            row.Add(name);
-            if (!distances)
-            {
-                row.Add(MoveChip(kind, 0f, "手动"));
-                return row;
-            }
-
-            for (int i = 0; i < CombatSim.OrderRanges.Length; i++)
-            {
-                float range = CombatSim.OrderRanges[i];
-                row.Add(MoveChip(kind, range, CombatSim.RangeLabel(range)));
-            }
-
-            return row;
-        }
-
-        static Button MoveChip(ShipOrder kind, float range, string title)
-        {
-            var button = new Button(() => ApplyMoveOrder(kind, range)) { text = title };
-            ArmChip(button, () => ApplyMoveOrder(kind, range));
-            button.AddToClassList("order-chip");
-            bool on = bound != null && bound.order == kind && (kind == ShipOrder.Manual || Mathf.Abs(bound.orderRange - range) < 1f);
-            if (on)
+            var button = new Button { text = title };
+            ArmChip(button, () => ChooseStrategy(kind));
+            button.AddToClassList("strategy-button");
+            if (bound != null && bound.order == kind)
                 button.AddToClassList("order-on");
             return button;
         }
 
-        static void ApplyMoveOrder(ShipOrder kind, float range)
+        static void ChooseStrategy(ShipOrder kind)
         {
-            if (bound == null)
-                return;
             if (kind == ShipOrder.Manual)
-                bound.ReleaseMoveOrder();
-            else
-                bound.SetMoveOrder(kind, range);
-            if (root != null)
-                root.schedule.Execute(() => ShowOrderMenu(menuFieldAnchor)).StartingIn(1);
+            {
+                if (bound != null)
+                    bound.ReleaseMoveOrder();
+                EndRangePick();
+                DismissOrderMenu();
+                return;
+            }
+
+            if (kind == ShipOrder.Dock)
+            {
+                if (bound != null)
+                    bound.SetMoveOrder(ShipOrder.Dock, 0f);
+                EndRangePick();
+                DismissOrderMenu();
+                return;
+            }
+
+            BeginRangePick(kind);
+        }
+
+        static void BeginRangePick(ShipOrder kind)
+        {
+            if (bound == null || bound.enemy == null || bound.enemy.destroyed || field == null)
+                return;
+            CloseOrderMenu();
+            rangeOrder = kind;
+            rangePicking = true;
+            rangeMoved = false;
+            rangeArmFrame = Time.frameCount;
+            rangeMeters = 28f / Mathf.Max(viewScale, 0.0001f);
+            if (!TryRangePointer(out rangeAnchorLocal) && bound.enemy != null)
+                rangeAnchorLocal = Project(bound.enemy.position);
+            PlaceRangeRing();
+        }
+
+        static void EndRangePick()
+        {
+            if (rangePicking)
+                rangeCancelFrame = Time.frameCount;
+            rangePicking = false;
+            rangeMoved = false;
+            HideRangeRing();
+        }
+
+        static void TakeRangeClick()
+        {
+            if (!rangePicking || Time.frameCount == rangeArmFrame || rangeHandledFrame == Time.frameCount || bound == null)
+                return;
+            rangeHandledFrame = Time.frameCount;
+            bound.SetMoveOrder(rangeOrder, rangeMeters);
+            EndRangePick();
+        }
+
+        static bool ConsumeRangeClick()
+        {
+            if (rangeHandledFrame == Time.frameCount)
+                return true;
+            if (!rangePicking || Time.frameCount == rangeArmFrame)
+                return false;
+            TakeRangeClick();
+            return rangeHandledFrame == Time.frameCount;
+        }
+
+        static void HideRangeRing()
+        {
+            if (rangeRing != null)
+                rangeRing.style.display = DisplayStyle.None;
+            if (rangeReadout != null)
+                rangeReadout.style.display = DisplayStyle.None;
+        }
+
+        static void PlaceRangeRing()
+        {
+            if (rangeRing == null)
+                return;
+            if (!rangePicking || bound == null || bound.enemy == null || bound.enemy.destroyed)
+            {
+                if (rangePicking)
+                    EndRangePick();
+                else
+                    HideRangeRing();
+                return;
+            }
+
+            CombatShip enemy = bound.enemy;
+            if (TryRangePointer(out Vector2 local))
+            {
+                if (!rangeMoved && (local - rangeAnchorLocal).sqrMagnitude >= 36f)
+                    rangeMoved = true;
+                if (rangeMoved)
+                {
+                    Vector2 world = Unproject(local);
+                    rangeMeters = Mathf.Clamp((world - enemy.position).magnitude, 1f, 100000f);
+                }
+                else
+                    rangeMeters = 28f / Mathf.Max(viewScale, 0.0001f);
+                if (rangeReadout != null)
+                {
+                    rangeReadout.style.display = DisplayStyle.Flex;
+                    rangeReadout.style.left = local.x + 16f;
+                    rangeReadout.style.top = local.y - 28f;
+                    rangeReadout.text = CombatSim.RangeLabel(rangeMeters);
+                }
+            }
+
+            float diameter = Mathf.Max(8f, rangeMeters * 2f * viewScale);
+            PlaceCircle(rangeRing, enemy.position, diameter);
+            rangeRing.style.display = DisplayStyle.Flex;
+            rangeRing.BringToFront();
+            if (rangeReadout != null)
+                rangeReadout.BringToFront();
+        }
+
+        static bool TryRangePointer(out Vector2 local)
+        {
+            if (TryMouseFieldLocal(out local))
+                return true;
+            if (pointerOverField)
+            {
+                local = fieldPointerLocal;
+                return true;
+            }
+
+            local = Vector2.zero;
+            return false;
         }
 
         static void ArmChip(Button button, Action apply)

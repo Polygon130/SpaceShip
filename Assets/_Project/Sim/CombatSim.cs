@@ -14,6 +14,10 @@ namespace SpaceShip
         public WeaponDef weapon;
         public bool guide;
         public float missSide;
+        public float yield = 1f;
+        public float penetration;
+        public int playerCell = -1;
+        public int enemyCell = -1;
     }
 
     public enum AttackFocus
@@ -30,7 +34,8 @@ namespace SpaceShip
         Track,
         Parallel,
         Orbit,
-        BreakOff
+        BreakOff,
+        Dock
     }
 
 
@@ -85,16 +90,55 @@ namespace SpaceShip
         public float thrustLevel;
         public float brakeLevel;
         public float turnCommand;
+        public float strafeCommand;
         public ShipOrder order;
         public bool fireEnergy = true;
         public bool fireBallistic = true;
         public bool fireMissile = true;
         public AttackFocus attackFocus;
         public float orderRange = 1000f;
-        public static readonly float[] OrderRanges = { 200f, 500f, 1000f, 2000f, 5000f, 10000f };
         float formationSign = 1f;
+        Vector2 orderCourse;
+        float orderCourseSpeed;
+        readonly List<Vector2> pathPos = new List<Vector2>();
+        readonly List<float> pathTime = new List<float>();
+        readonly List<Vector2> courseClip = new List<Vector2>();
+        float pathClock;
+        float pathWait;
+        Vector2 routePoint;
+        bool routeReady;
+        float orderSpeed = -1f;
+        float orderFixWait;
+        float orderHeldWant;
+        bool orderHeldBurn;
+        bool orderHeld;
+        bool orderBurnOn;
+        bool dockLatched;
+        bool dockJoining;
+        bool dockHeavyPlayer;
+        float dockSign = 1f;
+        float dockJoinT;
+        float dockJoinTime = 1f;
+        float dockHeavyHeading;
+        Vector2 dockCourse;
+        Vector2 dockAnchor;
+        Vector2 dockOffset;
+        Vector2 dockPlayerStart;
+        Vector2 dockEnemyStart;
+        Vector2 dockPlayerEnd;
+        Vector2 dockEnemyEnd;
+        float dockPlayerHeading0;
+        float dockEnemyHeading0;
+        float dockPlayerHeading1;
+        float dockEnemyHeading1;
+        float enemyFixWait;
+        float enemyHeldWant;
+        bool enemyHeldBurn;
+        bool enemyHeld;
+        bool enemyBurnOn;
         public int enemyMode;
         public bool combat;
+        public bool enemyMarked;
         public bool enemyIntent;
         public bool playerEngaging;
         public bool enemyEngaging;
@@ -102,7 +146,7 @@ namespace SpaceShip
         public float enemyBrake;
         float enemyThink;
         float enemyJink = 1f;
-        float enemyJinkFlip = 2.4f;
+        float enemyJinkFlip = 8f;
 
         public static CombatSim Start(CombatArenaDef arena)
         {
@@ -117,7 +161,7 @@ namespace SpaceShip
                         sim.planets.Add(placement);
                 }
             }
-            sim.player = CreateShip(arena.playerBuild, "玩家", true, new Vector2(0f, 300f), 180f);
+            sim.player = CreateShip(arena.playerBuild, "玩家", true, new Vector2(0f, 300f), 0f);
             sim.enemy = CreateShip(arena.enemyBuild, "敌方", false, new Vector2(0f, -300f), 0f);
             BindWells(sim.player, sim.planets.Count);
             BindWells(sim.enemy, sim.planets.Count);
@@ -136,13 +180,15 @@ namespace SpaceShip
         public static string OrderLabel(ShipOrder kind)
         {
             if (kind == ShipOrder.Track)
-                return "跟踪";
+                return "追击";
             if (kind == ShipOrder.Parallel)
                 return "平行";
             if (kind == ShipOrder.Orbit)
                 return "环绕";
             if (kind == ShipOrder.BreakOff)
                 return "脱离";
+            if (kind == ShipOrder.Dock)
+                return "停靠";
             return "手动";
         }
 
@@ -207,23 +253,42 @@ namespace SpaceShip
         public void SetMoveOrder(ShipOrder next, float range)
         {
             bool fresh = next != order;
+            bool rangeChanged = range > 1f && Mathf.Abs(orderRange - range) > 1f;
             order = next;
             if (range > 1f)
                 orderRange = range;
             if (fresh)
                 formationSign = PickFormationSign();
+            if (fresh || rangeChanged)
+            {
+                orderHeld = false;
+                orderBurnOn = false;
+            }
+            if (next != ShipOrder.Dock || fresh)
+            {
+                dockLatched = false;
+                dockJoining = false;
+            }
+            if (next == ShipOrder.Dock && fresh)
+                PickDockSide();
         }
 
         public void ReleaseMoveOrder()
         {
             order = ShipOrder.Manual;
+            orderHeld = false;
+            orderBurnOn = false;
+            orderSpeed = -1f;
+            dockLatched = false;
+            dockJoining = false;
         }
 
-        public void Step(float dt, float thrustLevel, float brakeLevel, float turn)
+        public void Step(float dt, float thrustLevel, float brakeLevel, float turn, float strafe)
         {
             this.thrustLevel = thrustLevel;
             this.brakeLevel = brakeLevel;
             turnCommand = turn;
+            strafeCommand = strafe;
             Advance(dt);
         }
 
@@ -247,6 +312,7 @@ namespace SpaceShip
 
             StepShip(player, dt, thrustLevel, brakeLevel, turnCommand, true);
             StepEnemy(dt);
+            HoldDock(dt);
             StepShots(dt);
             if (player.destroyed || enemy.destroyed)
             {
@@ -269,11 +335,15 @@ namespace SpaceShip
             thrustLevel = 0f;
             brakeLevel = 0f;
             turnCommand = 0f;
+            strafeCommand = 0f;
+            orderSpeed = -1f;
             if (player == null || player.destroyed || enemy == null || enemy.destroyed || flight == null || order == ShipOrder.Manual)
                 return;
             ShipReport report = ShipEvaluator.Evaluate(player.build);
             ApplyCombatPower(player, report);
             bool reactorUp = ReactorUp(player, report);
+            NoteEnemyCourse(dt);
+            NoteEnemyCourse(dt);
             float thrustOffset = ThrustOffset(player, report, reactorUp);
             float thrustAngle = player.heading + thrustOffset;
             float accel = ShipDriveAccel(player, report, reactorUp);
@@ -281,25 +351,70 @@ namespace SpaceShip
             float thrust;
             float brake;
             Vector2 escape;
+            bool matched = false;
             if (PlanetThreat(player, out escape))
             {
                 want = Mathf.Atan2(escape.x, escape.y) * Mathf.Rad2Deg;
-                thrust = AlignThrust(thrustAngle, want);
+                float gap = Mathf.Abs(Mathf.DeltaAngle(thrustAngle, want));
+                orderBurnOn = LatchBurn(AlignThrust(thrustAngle, want) > 0.5f, orderBurnOn, gap);
+                thrust = orderBurnOn ? 1f : 0f;
                 brake = 0f;
             }
             else
             {
-                SteerOrder(thrustAngle, accel, out want, out thrust, out brake);
+                matched = order == ShipOrder.Orbit || order == ShipOrder.Parallel || order == ShipOrder.Track || order == ShipOrder.Dock;
+                if (matched)
+                {
+                    SteerOrder(thrustAngle, accel, out want, out thrust, out brake);
+                    float gap = Mathf.Abs(Mathf.DeltaAngle(thrustAngle, want));
+                    if (gap > 28f)
+                        thrust = 0f;
+                    else if (gap > 8f)
+                        thrust *= (28f - gap) / 20f;
+                }
+                else
+                {
+                    orderFixWait -= dt;
+                    if (!orderHeld || orderFixWait <= 0f)
+                    {
+                        SteerOrder(thrustAngle, accel, out want, out thrust, out brake);
+                        orderHeldWant = want;
+                        orderHeldBurn = thrust > 0.5f;
+                        orderFixWait = 1f;
+                        orderHeld = true;
+                    }
+
+                    want = orderHeldWant;
+                    float aligned = Mathf.Abs(Mathf.DeltaAngle(thrustAngle, want));
+                    orderBurnOn = LatchBurn(orderHeldBurn, orderBurnOn, aligned);
+                    thrust = orderBurnOn ? 1f : 0f;
+                }
+
+                brake = 0f;
             }
 
             float headingWant = want - thrustOffset;
             float orderRate = OrderTurnRate(player);
             float delta = Mathf.DeltaAngle(player.heading, headingWant);
+            float absDelta = Mathf.Abs(delta);
             float turn = 0f;
-            if (orderRate > 0.01f && Mathf.Abs(delta) > 0.8f)
-                turn = Mathf.Clamp(delta / Mathf.Max(dt, 0.01f), -orderRate, orderRate) / Mathf.Max(1f, TurnRate(player));
+            float dead = matched ? 1.2f : 4f;
+            if (orderRate > 0.01f && absDelta > dead)
+            {
+                float fullAt = matched ? 24f : 70f;
+                float floor = matched ? 0.55f : 0.22f;
+                float cap = orderRate * Mathf.Clamp(absDelta / fullAt, floor, 1f);
+                turn = Mathf.Clamp(delta / Mathf.Max(dt, 0.01f), -cap, cap) / Mathf.Max(1f, TurnRate(player));
+            }
             if (brake > 0.01f)
                 thrust = 0f;
+            if (order == ShipOrder.Dock && (dockLatched || dockJoining))
+            {
+                thrust = 0f;
+                brake = 0f;
+                turn = 0f;
+                strafeCommand = 0f;
+            }
             thrustLevel = thrust;
             brakeLevel = brake;
             turnCommand = turn;
@@ -307,67 +422,341 @@ namespace SpaceShip
 
         void SteerOrder(float thrustAngle, float accel, out float want, out float thrust, out float brake)
         {
-            Vector2 travel = enemy.velocity.sqrMagnitude > 9f ? enemy.velocity.normalized : Forward(enemy.heading);
+            Vector2 center = enemy.position;
+            Vector2 motion = enemy.velocity;
             if (order == ShipOrder.Orbit)
             {
-                SteerOrbit(thrustAngle, travel, accel, out want, out thrust, out brake);
+                SteerOrbit(center, motion, accel, out want, out thrust, out brake);
                 return;
             }
 
-            Vector2 slot;
-            Vector2 face;
             if (order == ShipOrder.Parallel)
             {
-                Vector2 side = new Vector2(travel.y, -travel.x) * formationSign;
-                slot = enemy.position + side * orderRange;
-                face = travel;
+                SteerParallel(center, accel, out want, out thrust, out brake);
+                return;
             }
-            else if (order == ShipOrder.BreakOff)
+
+            if (order == ShipOrder.Track)
             {
-                Vector2 away = player.position - enemy.position;
+                SteerChase(center, accel, out want, out thrust, out brake);
+                return;
+            }
+
+            if (order == ShipOrder.Dock)
+            {
+                SteerDock(center, accel, out want, out thrust, out brake);
+                return;
+            }
+
+            if (order == ShipOrder.BreakOff)
+            {
+                Vector2 away = player.position - center;
                 float gap = away.magnitude;
-                if (gap < 1f)
-                    away = -travel;
-                else
-                    away /= gap;
-                face = away;
+                Vector2 dir = gap > 1f ? away / gap : Vector2.up;
                 if (gap >= orderRange - 20f)
                 {
-                    Vector2 hold = enemy.velocity;
-                    float closingIn = Vector2.Dot(enemy.velocity - player.velocity, away);
+                    Vector2 hold = motion;
+                    float closingIn = Vector2.Dot(motion - player.velocity, dir);
                     if (closingIn > 1f)
-                        hold += away * Mathf.Min(100f, closingIn + 16f);
-                    BurnToward(hold, face, thrustAngle, out want, out thrust, out brake);
+                        hold += dir * Mathf.Min(100f, closingIn + 16f);
+                    BurnToward(hold, dir, thrustAngle, out want, out thrust, out brake);
                     return;
                 }
 
-                slot = enemy.position + away * orderRange;
+                HoldSlot(center + dir * orderRange, motion, dir, thrustAngle, accel, out want, out thrust, out brake);
+                return;
+            }
+
+            want = thrustAngle;
+            thrust = 0f;
+            brake = 0f;
+        }
+
+        void SteerParallel(Vector2 center, float accel, out float want, out float thrust, out float brake)
+        {
+            Vector2 forward = TravelForward();
+            Vector2 side = new Vector2(-forward.y, forward.x) * formationSign;
+            HoldFormation(center + side * orderRange, enemy.velocity, accel, out want, out thrust, out brake);
+        }
+
+        void SteerChase(Vector2 center, float accel, out float want, out float thrust, out float brake)
+        {
+            Vector2 forward = TravelForward();
+            HoldFormation(center - forward * orderRange, enemy.velocity, accel, out want, out thrust, out brake);
+        }
+
+        void SteerDock(Vector2 center, float accel, out float want, out float thrust, out float brake)
+        {
+            brake = 0f;
+            float face = enemy.heading + (dockSign > 0f ? 180f : 0f);
+            if (dockLatched || dockJoining)
+            {
+                want = player.heading;
+                thrust = 0f;
+                orderSpeed = dockCourse.magnitude;
+                return;
+            }
+
+            Vector2 normal = Forward(enemy.heading) * dockSign;
+            float gap = BroadsideGap(player, enemy);
+            Vector2 slot = center + normal * gap;
+            Vector2 error = slot - player.position;
+            float dist = error.magnitude;
+            Vector2 corr = dist > 0.4f ? error / dist * Mathf.Clamp(dist * 0.55f, 0f, 90f) : Vector2.zero;
+            Vector2 desired = enemy.velocity + corr;
+            orderSpeed = desired.magnitude;
+            AimStrafe(desired);
+            want = face;
+            Vector2 nose = Forward(face);
+            float along = Vector2.Dot(desired - player.velocity, nose);
+            thrust = Mathf.Clamp(Mathf.Max(0f, along) / Mathf.Max(accel, 0.5f), 0f, 1f);
+        }
+
+        void HoldDock(float dt)
+        {
+            if (order != ShipOrder.Dock || player == null || player.destroyed || enemy == null || enemy.destroyed)
+                return;
+            if (!dockJoining && !dockLatched)
+            {
+                Vector2 normal = Forward(enemy.heading) * dockSign;
+                float gap = BroadsideGap(player, enemy);
+                Vector2 slot = enemy.position + normal * gap;
+                bool beside = (player.position - slot).sqrMagnitude <= 16f;
+                if (!beside && !HullsMeet(player, enemy, 1.5f))
+                    return;
+                BeginDockSlide();
+            }
+
+            if (dockJoining)
+            {
+                dockJoinT += dt / Mathf.Max(0.05f, dockJoinTime);
+                float u = Smooth01(dockJoinT);
+                PlaceDockFrame(u);
+                if (dockJoinT < 1f)
+                    return;
+                dockJoining = false;
+                dockLatched = true;
+                dockAnchor = dockHeavyPlayer ? dockPlayerEnd : dockEnemyEnd;
+                dockOffset = (dockHeavyPlayer ? dockEnemyEnd : dockPlayerEnd) - dockAnchor;
+            }
+
+            dockAnchor += dockCourse * dt;
+            CombatShip heavy = dockHeavyPlayer ? player : enemy;
+            CombatShip light = dockHeavyPlayer ? enemy : player;
+            heavy.position = dockAnchor;
+            light.position = dockAnchor + dockOffset;
+            heavy.heading = dockHeavyHeading;
+            light.heading = Mathf.Repeat(dockHeavyHeading + (dockSign > 0f ? 180f : 0f), 360f);
+            heavy.velocity = dockCourse;
+            light.velocity = dockCourse;
+            heavy.angularVelocity = 0f;
+            light.angularVelocity = 0f;
+        }
+
+        void BeginDockSlide()
+        {
+            float playerMass = ShipMass(player);
+            float enemyMass = ShipMass(enemy);
+            float total = Mathf.Max(1f, playerMass + enemyMass);
+            dockHeavyPlayer = playerMass >= enemyMass;
+            CombatShip heavy = dockHeavyPlayer ? player : enemy;
+            CombatShip light = dockHeavyPlayer ? enemy : player;
+            float lightMass = dockHeavyPlayer ? enemyMass : playerMass;
+            dockHeavyHeading = heavy.heading;
+            dockCourse = heavy.velocity;
+            float side = Vector2.Dot(light.position - heavy.position, Forward(heavy.heading));
+            dockSign = side >= 0f ? 1f : -1f;
+            float gap = BroadsideGap(player, enemy);
+            Vector2 normal = Forward(heavy.heading) * dockSign;
+            Vector2 com = (player.position * playerMass + enemy.position * enemyMass) / total;
+            Vector2 heavyEnd = com - normal * gap * (lightMass / total);
+            Vector2 lightEnd = heavyEnd + normal * gap;
+            dockPlayerStart = player.position;
+            dockEnemyStart = enemy.position;
+            dockPlayerHeading0 = player.heading;
+            dockEnemyHeading0 = enemy.heading;
+            if (dockHeavyPlayer)
+            {
+                dockPlayerEnd = heavyEnd;
+                dockEnemyEnd = lightEnd;
+                dockPlayerHeading1 = heavy.heading;
+                dockEnemyHeading1 = heavy.heading + (dockSign > 0f ? 180f : 0f);
             }
             else
             {
-                slot = enemy.position - travel * orderRange;
-                face = travel;
+                dockEnemyEnd = heavyEnd;
+                dockPlayerEnd = lightEnd;
+                dockEnemyHeading1 = heavy.heading;
+                dockPlayerHeading1 = heavy.heading + (dockSign > 0f ? 180f : 0f);
             }
 
-            HoldSlot(slot, enemy.velocity, face, thrustAngle, accel, out want, out thrust, out brake);
+            float travel = (dockPlayerEnd - dockPlayerStart).magnitude + (dockEnemyEnd - dockEnemyStart).magnitude;
+            float turn = Mathf.Abs(Mathf.DeltaAngle(dockPlayerHeading0, dockPlayerHeading1))
+                + Mathf.Abs(Mathf.DeltaAngle(dockEnemyHeading0, dockEnemyHeading1));
+            dockJoinTime = Mathf.Clamp(0.55f + travel / 32f + turn / 100f, 0.8f, 2.6f);
+            dockJoinT = 0f;
+            dockJoining = true;
         }
 
-        void SteerOrbit(float thrustAngle, Vector2 travel, float accel, out float want, out float thrust, out float brake)
+        void PlaceDockFrame(float u)
         {
-            Vector2 radial = player.position - enemy.position;
-            float dist = radial.magnitude;
-            Vector2 outDir = dist > 1f ? radial / dist : new Vector2(-travel.y, travel.x);
-            Vector2 tangent = new Vector2(outDir.y, -outDir.x) * formationSign;
-            float radialSpeed = Vector2.Dot(player.velocity - enemy.velocity, outDir);
+            player.position = Vector2.Lerp(dockPlayerStart, dockPlayerEnd, u);
+            enemy.position = Vector2.Lerp(dockEnemyStart, dockEnemyEnd, u);
+            player.heading = TurnBlend(dockPlayerHeading0, dockPlayerHeading1, u);
+            enemy.heading = TurnBlend(dockEnemyHeading0, dockEnemyHeading1, u);
+            player.velocity = dockCourse;
+            enemy.velocity = dockCourse;
+            player.angularVelocity = 0f;
+            enemy.angularVelocity = 0f;
+        }
+
+        static float ShipMass(CombatShip ship)
+        {
+            if (ship == null || ship.build == null)
+                return 1f;
+            return Mathf.Max(1f, ShipEvaluator.Evaluate(ship.build).mass);
+        }
+
+        static float TurnBlend(float from, float to, float u)
+        {
+            return Mathf.Repeat(from + Mathf.DeltaAngle(from, to) * Mathf.Clamp01(u), 360f);
+        }
+
+        static float Smooth01(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
+        }
+
+        void PickDockSide()
+        {
+            dockSign = 1f;
+            if (player == null || enemy == null)
+                return;
+            float side = Vector2.Dot(player.position - enemy.position, Forward(enemy.heading));
+            dockSign = side >= 0f ? 1f : -1f;
+        }
+
+        static float BroadsideGap(CombatShip a, CombatShip b)
+        {
+            return HullHalfForward(a) + HullHalfForward(b);
+        }
+
+        static float HullHalfForward(CombatShip ship)
+        {
+            HullDef hull = ship != null && ship.build != null ? ship.build.hull : null;
+            if (hull == null)
+                return 4f;
+            return hull.height * CellMeters * 0.5f;
+        }
+
+        static float HullHalfRight(CombatShip ship)
+        {
+            HullDef hull = ship != null && ship.build != null ? ship.build.hull : null;
+            if (hull == null)
+                return 6f;
+            return hull.width * CellMeters * 0.5f;
+        }
+
+        static bool HullsMeet(CombatShip a, CombatShip b, float skin)
+        {
+            if (a == null || b == null)
+                return false;
+            Vector2 delta = b.position - a.position;
+            if (Separated(Right(a.heading), delta, a, b, skin))
+                return false;
+            if (Separated(Forward(a.heading), delta, a, b, skin))
+                return false;
+            if (Separated(Right(b.heading), delta, a, b, skin))
+                return false;
+            if (Separated(Forward(b.heading), delta, a, b, skin))
+                return false;
+            return true;
+        }
+
+        static bool Separated(Vector2 axis, Vector2 delta, CombatShip a, CombatShip b, float skin)
+        {
+            if (axis.sqrMagnitude < 0.0001f)
+                return false;
+            axis.Normalize();
+            float reach = ExtentOn(a, axis) + ExtentOn(b, axis) + skin;
+            return Mathf.Abs(Vector2.Dot(delta, axis)) > reach;
+        }
+
+        static float ExtentOn(CombatShip ship, Vector2 axis)
+        {
+            return HullHalfRight(ship) * Mathf.Abs(Vector2.Dot(Right(ship.heading), axis))
+                + HullHalfForward(ship) * Mathf.Abs(Vector2.Dot(Forward(ship.heading), axis));
+        }
+
+        void HoldFormation(Vector2 slot, Vector2 motion, float accel, out float want, out float thrust, out float brake)
+        {
+            Vector2 posError = slot - player.position;
+            Vector2 corr = posError * 0.32f;
+            if (posError.magnitude < 2.5f)
+                corr = Vector2.zero;
+            corr = Vector2.ClampMagnitude(corr, Mathf.Max(16f, motion.magnitude * 0.45f));
+            MatchFlight(motion + corr, accel, out want, out thrust, out brake);
+        }
+
+        Vector2 TravelForward()
+        {
+            Vector2 motion = enemy != null ? enemy.velocity : Vector2.zero;
+            if (motion.sqrMagnitude > 1f)
+                return motion.normalized;
+            Vector2 course = EnemyCourseDir();
+            if (course.sqrMagnitude > 0.01f)
+                return course;
+            return Vector2.up;
+        }
+
+        void MatchFlight(Vector2 desired, float accel, out float want, out float thrust, out float brake)
+        {
+            brake = 0f;
+            orderSpeed = desired.magnitude;
+            AimStrafe(desired);
+            Vector2 face = desired.sqrMagnitude > 0.25f ? desired : player.velocity;
+            if (face.sqrMagnitude < 0.25f)
+                face = Forward(player.heading);
+            Vector2 aim = face.normalized;
+            want = Mathf.Atan2(aim.x, aim.y) * Mathf.Rad2Deg;
+            Vector2 error = desired - player.velocity;
+            float along = Vector2.Dot(error, aim);
+            float need = Mathf.Max(0f, along) * 1.2f;
+            if (player.velocity.sqrMagnitude > 4f && Vector2.Dot(player.velocity.normalized, aim) < 0.94f)
+                need = Mathf.Max(need, error.magnitude * 0.85f);
+            thrust = Mathf.Clamp(need / Mathf.Max(accel, 0.5f), 0f, 1f);
+        }
+
+        void SteerOrbit(Vector2 center, Vector2 motion, float accel, out float want, out float thrust, out float brake)
+        {
+            Vector2 radial = player.position - center;
+            float dist = Mathf.Max(radial.magnitude, 1f);
+            Vector2 outDir = radial / dist;
+            Vector2 inward = -outDir;
+            Vector2 tangent = new Vector2(-outDir.y, outDir.x) * formationSign;
+            float orbitSpeed = Mathf.Sqrt(Mathf.Max(accel, 0.5f) * Mathf.Max(orderRange, 20f) * 0.45f);
+            Vector2 rel = player.velocity - motion;
             float radialError = dist - orderRange;
-            float cruise = Mathf.Clamp(orderRange * 0.08f, 18f, 80f);
-            float toward = radialError >= 0f ? -radialSpeed : radialSpeed;
-            float allowed = SpeedRoomAllows(player, Mathf.Abs(radialError), accel);
-            float radialCmd = Mathf.Clamp(-radialError * 0.55f - radialSpeed * 1.1f, -70f, 70f);
-            if (toward > allowed)
-                radialCmd = radialError >= 0f ? -allowed : allowed;
-            Vector2 desired = enemy.velocity + tangent * cruise + outDir * radialCmd;
-            BurnToward(desired, tangent, thrustAngle, out want, out thrust, out brake);
+            float radialVel = Vector2.Dot(rel, outDir);
+            float radialCmd = Mathf.Clamp(-radialError * 0.4f - radialVel * 1.15f, -orbitSpeed * 0.7f, orbitSpeed * 0.7f);
+            Vector2 desired = motion + tangent * orbitSpeed + outDir * radialCmd;
+            Vector2 error = desired - player.velocity;
+            float ring = Mathf.Clamp01(1f - Mathf.Abs(radialError) / Mathf.Max(orderRange * 0.35f, 80f));
+            Vector2 cmd = error * 1.15f + inward * (orbitSpeed * orbitSpeed / Mathf.Max(orderRange, 20f)) * ring;
+            orderSpeed = desired.magnitude;
+            AimStrafe(desired);
+            brake = 0f;
+            if (cmd.sqrMagnitude < 0.04f)
+            {
+                Vector2 face = desired.sqrMagnitude > 0.25f ? desired : tangent;
+                want = Mathf.Atan2(face.x, face.y) * Mathf.Rad2Deg;
+                thrust = 0f;
+                return;
+            }
+
+            want = Mathf.Atan2(cmd.x, cmd.y) * Mathf.Rad2Deg;
+            thrust = Mathf.Clamp(cmd.magnitude / Mathf.Max(accel, 0.5f), 0f, 1f);
         }
 
         void HoldSlot(Vector2 slot, Vector2 match, Vector2 face, float thrustAngle, float accel, out float want, out float thrust, out float brake)
@@ -384,9 +773,25 @@ namespace SpaceShip
             BurnToward(desired, nose, thrustAngle, out want, out thrust, out brake);
         }
 
+        void AimStrafe(Vector2 desired)
+        {
+            strafeCommand = 0f;
+            if (player == null || player.build == null || player.build.hull == null || flight == null)
+                return;
+            float thrust = player.build.hull.sideThrust;
+            if (thrust <= 0.01f)
+                return;
+            float sideAccel = flight.Acceleration(thrust, Mathf.Max(1f, ShipEvaluator.Evaluate(player.build).mass));
+            float miss = Vector2.Dot(desired - player.velocity, ShipLateral(player));
+            if (Mathf.Abs(miss) < 0.8f)
+                return;
+            strafeCommand = Mathf.Clamp(miss / Mathf.Max(sideAccel * 0.45f, 1.5f), -1f, 1f);
+        }
+
         void BurnToward(Vector2 desiredVel, Vector2 face, float thrustAngle, out float want, out float thrust, out float brake)
         {
             brake = 0f;
+            AimStrafe(desiredVel);
             Vector2 burn = desiredVel - player.velocity;
             if (burn.sqrMagnitude < 1.44f)
             {
@@ -397,13 +802,84 @@ namespace SpaceShip
             }
 
             want = Mathf.Atan2(burn.x, burn.y) * Mathf.Rad2Deg;
-            float dot = Vector2.Dot(Forward(thrustAngle), burn.normalized);
-            if (dot <= 0.08f)
-                thrust = 0f;
-            else if (dot >= 0.5f)
-                thrust = 1f;
-            else
-                thrust = 0.75f;
+            thrust = 1f;
+        }
+
+        void NoteEnemyCourse(float dt)
+        {
+            if (enemy == null || enemy.destroyed || flight == null)
+                return;
+            float simDt = dt * Mathf.Clamp(flight.timeScale, 0.02f, 1f);
+            pathClock += simDt;
+            pathWait -= simDt;
+            if (pathWait <= 0f)
+            {
+                pathWait = 0.15f;
+                pathPos.Add(enemy.position);
+                pathTime.Add(pathClock);
+            }
+
+            float keep = pathClock - 4f;
+            int drop = 0;
+            while (drop < pathTime.Count && pathTime[drop] < keep)
+                drop++;
+            if (drop > 0)
+            {
+                pathTime.RemoveRange(0, drop);
+                pathPos.RemoveRange(0, drop);
+            }
+
+            if (pathTime.Count < 3 || pathTime[pathTime.Count - 1] - pathTime[0] < 0.5f)
+                return;
+            float n = pathTime.Count;
+            float st = 0f;
+            float stt = 0f;
+            float sx = 0f;
+            float sy = 0f;
+            float sxt = 0f;
+            float syt = 0f;
+            for (int i = 0; i < pathTime.Count; i++)
+            {
+                float t = pathTime[i] - pathClock;
+                Vector2 p = pathPos[i];
+                st += t;
+                stt += t * t;
+                sx += p.x;
+                sy += p.y;
+                sxt += p.x * t;
+                syt += p.y * t;
+            }
+
+            float den = n * stt - st * st;
+            if (Mathf.Abs(den) < 0.001f)
+                return;
+            Vector2 fitted = new Vector2((n * sxt - st * sx) / den, (n * syt - st * sy) / den);
+            float speed = fitted.magnitude;
+            routePoint = new Vector2(sx, sy) / n - fitted * (st / n);
+            routeReady = true;
+            orderCourseSpeed = speed;
+            if (speed < 0.2f)
+                return;
+            orderCourse = fitted / speed;
+        }
+
+        Vector2 EnemyCourseDir()
+        {
+            if (orderCourse.sqrMagnitude > 0.01f)
+                return orderCourse;
+            return Vector2.zero;
+        }
+
+        Vector2 EnemyCourseVelocity()
+        {
+            return EnemyCourseDir() * orderCourseSpeed;
+        }
+
+        Vector2 RoutePoint()
+        {
+            if (routeReady)
+                return routePoint;
+            return enemy != null ? enemy.position : Vector2.zero;
         }
 
         float PickFormationSign()
@@ -411,13 +887,13 @@ namespace SpaceShip
             if (player == null || enemy == null)
                 return 1f;
             Vector2 radial = player.position - enemy.position;
-            Vector2 fwd = enemy.velocity.sqrMagnitude > 9f ? enemy.velocity.normalized : Forward(enemy.heading);
+            Vector2 fwd = enemy.velocity.sqrMagnitude > 1f ? enemy.velocity.normalized : EnemyCourseDir();
             Vector2 side = new Vector2(fwd.y, -fwd.x);
             if (order == ShipOrder.Orbit)
             {
                 Vector2 outDir = radial.sqrMagnitude > 1f ? radial.normalized : Vector2.up;
                 Vector2 tangent = new Vector2(outDir.y, -outDir.x);
-                float tangential = Vector2.Dot(player.velocity - enemy.velocity, tangent);
+                float tangential = Vector2.Dot(player.velocity - EnemyCourseVelocity(), tangent);
                 return tangential >= 0f ? 1f : -1f;
             }
 
@@ -468,6 +944,24 @@ namespace SpaceShip
             }
 
             ship.structure = ship.cellStructureMax * open;
+            CellMap layout = CellMap.Build(build);
+            RoomDef bare = hull.defaultCabin;
+            if (bare != null && bare.armor > 0f)
+            {
+                for (int y = 0; y < hull.height; y++)
+                {
+                    for (int x = 0; x < hull.width; x++)
+                    {
+                        if (!hull.IsOpen(x, y))
+                            continue;
+                        int key = y * hull.width + x;
+                        if (layout.floor.ContainsKey(key) || layout.half.ContainsKey(key))
+                            continue;
+                        ship.cellArmor[key] = bare.armor;
+                    }
+                }
+            }
+
             for (int i = 0; i < rooms; i++)
             {
                 if (i >= report.valid.Count || !report.valid[i])
@@ -498,6 +992,12 @@ namespace SpaceShip
             ShipReport report = ShipEvaluator.Evaluate(ship.build);
             ApplyCombatPower(ship, report);
             bool reactorUp = ReactorUp(ship, report);
+            if (!reactorUp)
+            {
+                turn = 0f;
+                thrustLevel = 0f;
+                ship.angularVelocity = 0f;
+            }
             float turnRate = TurnRate(ship);
             float inertia = TurnInertia(ship);
             float commanded = turn * turnRate;
@@ -509,7 +1009,6 @@ namespace SpaceShip
                 ship.angularVelocity = Mathf.MoveTowards(ship.angularVelocity, commanded, spin / inertia * dt);
             float yaw = ship.angularVelocity * dt;
             ship.heading += yaw;
-            CarryVelocity(ref ship.velocity, yaw * flight.velocityFollowTurn);
             Vector2 thrustVector = Vector2.zero;
             for (int i = 0; i < ship.build.rooms.Count; i++)
             {
@@ -522,9 +1021,21 @@ namespace SpaceShip
             }
 
             ship.thrustNow = thrustVector.magnitude;
+            if (ship.thrustNow > 0.01f && thrustLevel > 0.01f)
+                CarryVelocity(ref ship.velocity, yaw * flight.velocityFollowTurn);
             float driveAccel = flight.Acceleration(ship.thrustNow, report.mass);
-            PushVelocity(ref ship.velocity, thrustVector, driveAccel, thrustLevel, dt);
+            float adjustTime = DriveAdjustTime(ship, report, reactorUp);
+            bool pilotHold = ship.player && orderSpeed >= 0f;
+            bool overCap = !pilotHold && GearOverCap(ship.velocity, thrustLevel, driveAccel, adjustTime);
+            if (!overCap)
+                PushVelocity(ref ship.velocity, thrustVector, driveAccel, thrustLevel, dt);
+            if (reactorUp)
+                PushStrafe(ship, ref ship.velocity, report.mass, dt);
             ApplyGravity(ship, dt);
+            if (pilotHold)
+                HoldSpeed(ref ship.velocity, orderSpeed, driveAccel, dt);
+            else
+                ReelGearSpeed(ref ship.velocity, thrustLevel, driveAccel, adjustTime, dt);
             Vector2 before = ship.position;
             ship.position += ship.velocity * dt;
             Vector2 impact;
@@ -567,12 +1078,11 @@ namespace SpaceShip
             GunScan theirs = ScanGun(player, playerReport, playerReactor);
             Vector2 to = player.position - enemy.position;
             float distance = to.magnitude;
-            Vector2 toDir = distance > 0.01f ? to / distance : Forward(enemy.heading);
             enemyJinkFlip -= dt;
             if (enemyJinkFlip <= 0f)
             {
                 enemyJink = -enemyJink;
-                enemyJinkFlip = 2.4f;
+                enemyJinkFlip = 8f;
             }
 
             enemyThink -= dt;
@@ -605,6 +1115,7 @@ namespace SpaceShip
             float thrustOffset = ThrustOffset(enemy, report, reactorUp);
             float standoff = Mathf.Clamp(mine.reach * 0.55f, 70f, mine.reach * 0.8f);
             float accel = ShipDriveAccel(enemy, report, reactorUp);
+            Vector2 toDir = distance > 0.01f ? to / distance : Forward(enemy.heading);
             float relClosing = Vector2.Dot(enemy.velocity - player.velocity, toDir);
             Vector2 escape;
             bool planet = PlanetThreat(enemy, out escape);
@@ -641,13 +1152,29 @@ namespace SpaceShip
                 }
                 else
                 {
-                    Vector2 lead = LeadPoint(enemy, player, mine.muzzle, mine.reach / Mathf.Max(40f, mine.muzzle));
-                    want = Mathf.Atan2(lead.x - enemy.position.x, lead.y - enemy.position.y) * Mathf.Rad2Deg - mine.rotation * 90f;
+                    float chase = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
                     if (distance > standoff * 1.15f && relClosing < allowed * 0.85f)
-                        thrust = AlignThrust(enemy.heading + thrustOffset, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
+                    {
+                        want = chase - thrustOffset;
+                        thrust = AlignThrust(enemy.heading + thrustOffset, chase);
+                    }
                     else if (relClosing < -4f)
-                        thrust = 0.45f;
+                    {
+                        want = chase - thrustOffset;
+                        thrust = 1f;
+                    }
+                    else
+                    {
+                        Vector2 lead = LeadPoint(enemy, player, mine.muzzle, mine.reach / Mathf.Max(40f, mine.muzzle));
+                        want = Mathf.Atan2(lead.x - enemy.position.x, lead.y - enemy.position.y) * Mathf.Rad2Deg - mine.rotation * 90f;
+                    }
                 }
+            }
+            else if (distance > mine.reach)
+            {
+                float chase = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
+                want = chase - thrustOffset;
+                thrust = AlignThrust(enemy.heading + thrustOffset, chase);
             }
             else
             {
@@ -680,11 +1207,39 @@ namespace SpaceShip
                 }
             }
 
+            float shift = enemyHeld ? Mathf.Abs(Mathf.DeltaAngle(enemyHeldWant, want)) : 180f;
+            bool due = !enemyHeld || enemyFixWait <= 0f;
+            enemyFixWait -= dt;
+            if (planet)
+            {
+                enemyHeldWant = want;
+                enemyHeldBurn = thrust > 0.01f;
+                enemyHeld = true;
+                if (due)
+                    enemyFixWait = 2.5f;
+            }
+            else if (due)
+            {
+                if (!enemyHeld || shift > 28f)
+                    enemyHeldWant = want;
+                enemyHeldBurn = thrust > 0.01f;
+                enemyFixWait = 2.5f;
+                enemyHeld = true;
+            }
+
+            want = enemyHeldWant;
+            float noseGap = Mathf.Abs(Mathf.DeltaAngle(enemy.heading + thrustOffset, want + thrustOffset));
+            enemyBurnOn = LatchBurn(enemyHeldBurn, enemyBurnOn, noseGap);
+            thrust = enemyBurnOn ? 1f : 0f;
             float orderRate = OrderTurnRate(enemy);
             float delta = Mathf.DeltaAngle(enemy.heading, want);
+            float absDelta = Mathf.Abs(delta);
             float turn = 0f;
-            if (orderRate > 0.01f && Mathf.Abs(delta) > 0.8f)
-                turn = Mathf.Clamp(delta / Mathf.Max(dt, 0.01f), -orderRate, orderRate) / Mathf.Max(1f, TurnRate(enemy));
+            if (orderRate > 0.01f && absDelta > 4f)
+            {
+                float cap = orderRate * Mathf.Clamp(absDelta / 70f, 0.22f, 1f);
+                turn = Mathf.Clamp(delta / Mathf.Max(dt, 0.01f), -cap, cap) / Mathf.Max(1f, TurnRate(enemy));
+            }
             enemyThrust = thrust;
             enemyBrake = 0f;
             StepShip(enemy, dt, thrust, 0f, turn, false);
@@ -701,6 +1256,8 @@ namespace SpaceShip
             bool liningUp = enemyMode == 0 && reach > 1f && distance <= reach;
             enemyIntent = enemyMode > 0 || liningUp;
             combat = playerEngaging || enemyEngaging || enemyIntent;
+            if (combat && enemy != null && !enemy.destroyed)
+                enemyMarked = true;
         }
 
         public string CombatNotice()
@@ -847,11 +1404,14 @@ namespace SpaceShip
         static float AlignThrust(float thrustAngle, float desired)
         {
             float gap = Mathf.Abs(Mathf.DeltaAngle(thrustAngle, desired));
-            if (gap < 35f)
-                return 1f;
-            if (gap < 80f)
-                return 0.3f;
-            return 0f;
+            return gap < 80f ? 1f : 0f;
+        }
+
+        static bool LatchBurn(bool want, bool on, float gap)
+        {
+            if (!want)
+                return false;
+            return on ? gap < 32f : gap < 16f;
         }
 
         float OrderTurnRate(CombatShip ship)
@@ -877,7 +1437,8 @@ namespace SpaceShip
             HullDef hull = ship != null && ship.build != null ? ship.build.hull : null;
             if (hull == null)
                 return 0.4f;
-            return Mathf.Max(0f, hull.turnInertia);
+            float speed = ship.velocity.magnitude;
+            return Mathf.Max(0f, hull.turnInertia + Mathf.Max(0f, hull.speedInertia) * speed);
         }
 
         float SpeedRoomAllows(CombatShip ship, float room, float accel)
@@ -1005,6 +1566,8 @@ namespace SpaceShip
                     toPoint = shipTo;
                 }
 
+                float efficiency = Mathf.Clamp01(RoomEfficiency(ship, i));
+                float shotSpeed = Mathf.Max(0.01f, weapon.muzzleSpeed * efficiency);
                 Vector2 aim = barrel;
                 bool gunHit = false;
                 if (missile)
@@ -1014,28 +1577,30 @@ namespace SpaceShip
                     Vector2 facing = toPoint.sqrMagnitude > 0.01f ? toPoint : shipTo;
                     if (Vector2.Angle(barrel, facing) > 55f)
                         continue;
-                    float chance = GunHitChance(ship, i, muzzle, aimPoint, target, weapon, reach);
+                    float chance = GunHitChance(ship, i, muzzle, aimPoint, target, weapon, reach) * efficiency;
                     gunHit = Random.value <= chance;
-                    if (!BallisticAim(ship, target, muzzle, aimPoint, weapon.muzzleSpeed, life, gunHit, out aim))
+                    if (!BallisticAim(ship, target, muzzle, aimPoint, shotSpeed, life, gunHit, out aim))
                         aim = facing.sqrMagnitude > 0.01f ? facing.normalized : barrel;
                 }
 
                 float wait = weapon.cooldown > 0.05f ? weapon.cooldown : 0.8f;
-                ship.weaponCooldown[i] = wait;
-                bool guide = missile ? Random.value <= Mathf.Clamp01(weapon.baseHit) : gunHit;
-                Vector2 velocity = ship.velocity + aim * weapon.muzzleSpeed;
+                ship.weaponCooldown[i] = wait / Mathf.Max(0.05f, efficiency);
+                bool guide = missile ? Random.value <= Mathf.Clamp01(weapon.baseHit * efficiency) : gunHit;
+                Vector2 velocity = ship.velocity + aim * shotSpeed;
                 if (missile)
                     velocity = MissileFlight.Launch(muzzle, ship.velocity, aim, weapon).velocity;
                 shots.Add(new CombatShot
                 {
                     position = muzzle,
                     velocity = velocity,
-                    damage = weapon.damage * RoomEfficiency(ship, i),
+                    damage = weapon.damage * efficiency,
                     lifetime = life,
                     owner = ship.player ? 0 : 1,
-                    weapon = missile ? weapon : null,
+                    weapon = weapon,
                     guide = guide,
-                    missSide = Random.value < 0.5f ? -1f : 1f
+                    missSide = Random.value < 0.5f ? -1f : 1f,
+                    yield = efficiency,
+                    penetration = Mathf.Max(0f, weapon.penetration)
                 });
             }
         }
@@ -1067,7 +1632,7 @@ namespace SpaceShip
                         velocity = shot.velocity,
                         age = shot.age
                     };
-                    bool alive = MissileFlight.Step(ref state, aimAt, shot.weapon, dt);
+                    bool alive = MissileFlight.Step(ref state, aimAt, shot.weapon, dt, shot.yield);
                     shot.position = state.position;
                     shot.velocity = state.velocity;
                     shot.age = state.age;
@@ -1087,6 +1652,9 @@ namespace SpaceShip
                     }
 
                     shot.position += shot.velocity * dt;
+                    if (AbsorbAlong(shot, before, shot.position))
+                        shots.RemoveAt(i);
+                    continue;
                 }
 
                 if (target == null || target.destroyed)
@@ -1099,6 +1667,90 @@ namespace SpaceShip
                     TryHit(target, shot);
                 shots.RemoveAt(i);
             }
+        }
+
+        bool AbsorbAlong(CombatShot shot, Vector2 from, Vector2 to)
+        {
+            Vector2 delta = to - from;
+            float distance = delta.magnitude;
+            if (distance < 0.0001f)
+                return false;
+            CellMap playerCells = player != null ? CellMap.Build(player.build) : null;
+            CellMap enemyCells = enemy != null ? CellMap.Build(enemy.build) : null;
+            int steps = Mathf.Max(1, Mathf.CeilToInt(distance / (CellMeters * 0.45f)));
+            for (int n = 1; n <= steps; n++)
+            {
+                Vector2 pos = from + delta * (n / (float)steps);
+                if (shot.owner != 0 && EnterCell(shot, player, playerCells, ref shot.playerCell, pos))
+                    return true;
+                if (shot.owner != 1 && EnterCell(shot, enemy, enemyCells, ref shot.enemyCell, pos))
+                    return true;
+            }
+
+            return false;
+        }
+
+        bool EnterCell(CombatShot shot, CombatShip ship, CellMap cells, ref int lastCell, Vector2 pos)
+        {
+            if (ship == null || ship.destroyed || cells == null)
+            {
+                lastCell = -1;
+                return false;
+            }
+
+            if (!TryCell(ship, pos, out int cellX, out int cellY))
+            {
+                lastCell = -1;
+                return false;
+            }
+
+            int key = cellY * ship.build.hull.width + cellX;
+            if (key == lastCell)
+                return false;
+            lastCell = key;
+            StrikeCell(ship, cellX, cellY, shot.damage);
+            if (!CellHasArmor(ship, cells, key))
+                return false;
+            shot.penetration -= 1f;
+            if (shot.penetration > 0.01f)
+                return false;
+            shot.position = pos;
+            return true;
+        }
+
+        static bool CellHasArmor(CombatShip ship, CellMap cells, int key)
+        {
+            bool occupied = false;
+            float rating = 0f;
+            if (cells.floor.TryGetValue(key, out int floor))
+            {
+                occupied = true;
+                rating = Mathf.Max(rating, RoomArmor(ship, floor));
+            }
+
+            if (cells.half.TryGetValue(key, out int half))
+            {
+                occupied = true;
+                rating = Mathf.Max(rating, RoomArmor(ship, half));
+            }
+
+            if (!occupied)
+            {
+                RoomDef bare = ship.build != null && ship.build.hull != null ? ship.build.hull.defaultCabin : null;
+                rating = bare != null ? bare.armor : 0f;
+            }
+
+            return rating > 0.01f;
+        }
+
+        static float RoomArmor(CombatShip ship, int index)
+        {
+            if (ship == null || ship.build == null || index < 0 || index >= ship.build.rooms.Count)
+                return 0f;
+            RoomPlacement placement = ship.build.rooms[index];
+            if (placement == null || placement.room == null)
+                return 0f;
+            return placement.room.armor;
         }
 
         static bool SegmentContact(CombatShip ship, Vector2 from, Vector2 to, out Vector2 contact)
@@ -1214,11 +1866,17 @@ namespace SpaceShip
             float muzzleSpeed = Mathf.Max(1f, weapon.muzzleSpeed);
             float motion = relVel.magnitude * distance / muzzleSpeed;
             float radius = Mathf.Max(1f, HullRadius(target));
-            float rangeFactor = reach > 1f ? Mathf.Clamp01(1.15f - 0.5f * (distance / reach)) : 1f;
-            float cross = Mathf.Clamp01(radius / (radius + motion * 0.2f) * rangeFactor);
+            float cross = Mathf.Clamp01(radius / (radius + motion * 0.2f));
+            float falloff = 1f;
+            if (reach > 1f)
+                falloff = Mathf.Lerp(1f, Mathf.Clamp01(weapon.rangeHit), Mathf.Clamp01(distance / reach));
+            float close = 1f;
+            if (weapon.closeRange > 1f)
+                close = Mathf.Lerp(Mathf.Max(1f, weapon.closeHit), 1f, Mathf.Clamp01(distance / weapon.closeRange));
+            float distanceHit = falloff * close;
             float locked = ship.weaponLock != null && index >= 0 && index < ship.weaponLock.Length ? ship.weaponLock[index] : 0f;
             float oper = 1f;
-            return Mathf.Clamp01(weapon.baseHit * oper * cross * locked);
+            return Mathf.Clamp01(weapon.baseHit * oper * cross * locked * distanceHit);
         }
 
         static bool BallisticAim(CombatShip ship, CombatShip target, Vector2 muzzle, Vector2 aimPoint, float muzzleSpeed, float life, bool hit, out Vector2 aim)
@@ -1306,14 +1964,23 @@ namespace SpaceShip
 
         static bool CoversCell(CombatShip ship, Vector2 world)
         {
-            HullDef hull = ship.build != null ? ship.build.hull : null;
+            int cellX;
+            int cellY;
+            return TryCell(ship, world, out cellX, out cellY);
+        }
+
+        static bool TryCell(CombatShip ship, Vector2 world, out int cellX, out int cellY)
+        {
+            cellX = 0;
+            cellY = 0;
+            HullDef hull = ship != null && ship.build != null ? ship.build.hull : null;
             if (hull == null)
                 return false;
             Vector2 delta = world - ship.position;
             float localX = Vector2.Dot(delta, Right(ship.heading));
             float localY = Vector2.Dot(delta, Forward(ship.heading));
-            int cellX = Mathf.FloorToInt(localX / CellMeters + hull.width * 0.5f);
-            int cellY = Mathf.FloorToInt(localY / CellMeters + hull.height * 0.5f);
+            cellX = Mathf.FloorToInt(localX / CellMeters + hull.width * 0.5f);
+            cellY = Mathf.FloorToInt(localY / CellMeters + hull.height * 0.5f);
             return hull.IsOpen(cellX, cellY);
         }
 
@@ -1322,17 +1989,45 @@ namespace SpaceShip
             HullDef hull = ship.build.hull;
             if (hull == null || ship.destroyed)
                 return false;
-            Vector2 right = Right(ship.heading);
-            Vector2 forward = Forward(ship.heading);
-            Vector2 delta = shot.position - ship.position;
-            float localX = Vector2.Dot(delta, right);
-            float localY = Vector2.Dot(delta, forward);
-            int cellX = Mathf.FloorToInt(localX / CellMeters + hull.width * 0.5f);
-            int cellY = Mathf.FloorToInt(localY / CellMeters + hull.height * 0.5f);
-            if (!hull.IsOpen(cellX, cellY))
-                return false;
+            Vector2 step = shot.velocity.sqrMagnitude > 0.01f ? shot.velocity.normalized : Forward(ship.heading);
+            float budget = shot.penetration;
+            CellMap cells = CellMap.Build(ship.build);
+            var seen = new HashSet<int>();
+            Vector2 pos = shot.position;
+            int lastX = 0;
+            int lastY = 0;
+            bool hit = false;
+            for (int n = 0; n < 24 && budget > 0.01f; n++)
+            {
+                int cellX;
+                int cellY;
+                if (!TryCell(ship, pos, out cellX, out cellY))
+                    break;
+                int key = cellY * hull.width + cellX;
+                if (seen.Add(key))
+                {
+                    StrikeCell(ship, cellX, cellY, shot.damage);
+                    if (CellHasArmor(ship, cells, key))
+                        budget -= 1f;
+                    lastX = cellX;
+                    lastY = cellY;
+                    hit = true;
+                    if (budget <= 0.01f)
+                        break;
+                }
+
+                pos += step * (CellMeters * 0.45f);
+            }
+
+            if (hit && shot.weapon != null && shot.weapon.blastRadius > 0.01f)
+                Splash(ship, lastX, lastY, shot.damage, shot.weapon.blastRadius);
+            return hit;
+        }
+
+        static void StrikeCell(CombatShip ship, int cellX, int cellY, float damage)
+        {
+            HullDef hull = ship.build.hull;
             int key = cellY * hull.width + cellX;
-            float damage = shot.damage;
             if (key >= 0 && key < ship.cellArmor.Length && ship.cellArmor[key] > 0f)
             {
                 float absorbed = Mathf.Min(ship.cellArmor[key], damage);
@@ -1342,10 +2037,6 @@ namespace SpaceShip
 
             if (damage > 0f)
                 HurtCell(ship, cellX, cellY, damage);
-            if (shot.weapon != null && shot.weapon.blastRadius > 0.01f)
-                Splash(ship, cellX, cellY, shot.damage, shot.weapon.blastRadius);
-
-            return true;
         }
 
         static void Splash(CombatShip ship, int cellX, int cellY, float damage, float radius)
@@ -1596,6 +2287,7 @@ namespace SpaceShip
             float thrustMag = thrustBody.magnitude;
             Vector2 thrustDir = thrustMag > 0.01f ? thrustBody / thrustMag : Vector2.up;
             float accel = flight.Acceleration(thrustMag, report.mass);
+            float adjustTime = DriveAdjustTime(ship, report, reactorUp);
             Vector2 position = ship.position;
             Vector2 origin = viewCenter;
             Vector2 velocity = ship.velocity;
@@ -1610,36 +2302,38 @@ namespace SpaceShip
             speedHint = Mathf.Max(speedHint, 1f);
             float stride = Mathf.Max(6f, reach / 180f);
             bool crashed = false;
-            bool armed = !throughView || !PastView(position, origin, limitX, limitY);
-            KeepCoursePoint(into, position, origin, limitX, limitY, throughView, armed);
+            bool armed = !PastView(position, origin, limitX, limitY);
+            if (!throughView || armed)
+                into.Add(position);
             int maxSteps = 420;
             if (throughView)
             {
                 float far = Vector2.Distance(position, origin) + reach * 2f;
-                maxSteps = Mathf.Clamp(Mathf.CeilToInt(far / stride) + 8, 420, 1600);
+                maxSteps = Mathf.Clamp(Mathf.CeilToInt(far / stride) + 8, 420, 6000);
             }
 
+            Vector2 prev = position;
             for (int i = 0; i < maxSteps; i++)
             {
                 float speed = Mathf.Max(velocity.magnitude, speedHint * 0.35f);
-                float dt = stride / speed;
-                int sub = 1;
-                if (NearWell(position))
-                {
-                    dt = Mathf.Min(dt, 0.2f);
-                    sub = Mathf.Clamp(Mathf.CeilToInt(dt / 0.04f), 1, 8);
-                }
-                else
-                {
-                    dt = Mathf.Clamp(dt, 0.02f, 1.2f);
-                }
-
+                float dt = Mathf.Clamp(stride / speed, 0.02f, 0.45f);
+                float slice = NearWell(position) ? 0.04f : 0.1f;
+                int sub = Mathf.Clamp(Mathf.CeilToInt(dt / slice), 1, 12);
                 float step = dt / sub;
                 for (int s = 0; s < sub; s++)
                 {
+                    float push = drive;
                     Vector2 world = Right(heading) * thrustDir.x + Forward(heading) * thrustDir.y;
-                    PushVelocity(ref velocity, world, accel, drive, step);
+                    bool pilotHold = ship.player && orderSpeed >= 0f;
+                    if (pilotHold || !GearOverCap(velocity, drive, accel, adjustTime))
+                        PushVelocity(ref velocity, world, accel, push, step);
+                    if (reactorUp && ship.player)
+                        PushStrafe(ship, ref velocity, report.mass, step);
                     PullGravity(position, ref velocity, passes, step);
+                    if (pilotHold)
+                        HoldSpeed(ref velocity, orderSpeed, accel, step);
+                    else
+                        ReelGearSpeed(ref velocity, drive, accel, adjustTime, step);
                     Vector2 before = position;
                     position += velocity * step;
                     Vector2 impact;
@@ -1652,34 +2346,127 @@ namespace SpaceShip
                 }
 
                 bool outside = PastView(position, origin, limitX, limitY);
-                if (!outside)
+                bool crosses = throughView && SegmentMeetsView(prev, position, origin, limitX, limitY);
+                if (!outside || crosses)
                     armed = true;
-                KeepCoursePoint(into, position, origin, limitX, limitY, throughView, armed);
+                if (throughView && !armed)
+                {
+                    if (into.Count == 0)
+                        into.Add(position);
+                    else
+                        into[into.Count - 1] = position;
+                }
+                else
+                {
+                    if (crosses && (into.Count == 0 || (into[into.Count - 1] - prev).sqrMagnitude > 0.25f))
+                        into.Add(prev);
+                    into.Add(position);
+                }
+
+                prev = position;
                 if (crashed)
                     break;
-                if (outside && (!throughView || armed))
+                if (outside && (!throughView || (armed && !crosses)))
                     break;
-                if (velocity.sqrMagnitude < 0.04f && drive <= 0.01f)
+                if (velocity.sqrMagnitude < 0.01f && drive <= 0.01f)
                     break;
             }
 
-            if (!crashed && velocity.sqrMagnitude > 0.04f && !PastView(position, origin, limitX, limitY))
-                into.Add(RayToViewEdge(position, origin, velocity, limitX, limitY));
+            if (!crashed && into.Count > 0 && !PastView(position, origin, limitX, limitY))
+            {
+                Vector2 dir = velocity.sqrMagnitude > 0.01f ? velocity : (drive > 0.01f ? Forward(heading) : Vector2.zero);
+                if (dir.sqrMagnitude > 0.0001f)
+                    into.Add(RayToViewEdge(position, origin, dir, limitX, limitY));
+            }
+
+            if (throughView)
+                ClipCourse(into, origin, limitX, limitY);
         }
 
-        static void KeepCoursePoint(List<Vector2> into, Vector2 position, Vector2 origin, float limitX, float limitY, bool throughView, bool armed)
+        void ClipCourse(List<Vector2> into, Vector2 origin, float limitX, float limitY)
         {
-            bool near = !PastView(position, origin, limitX * 1.25f, limitY * 1.25f);
-            if (throughView && !armed && !near)
+            courseClip.Clear();
+            float minX = origin.x - limitX;
+            float maxX = origin.x + limitX;
+            float minY = origin.y - limitY;
+            float maxY = origin.y + limitY;
+            bool open = false;
+            Vector2 last = Vector2.zero;
+            for (int i = 0; i + 1 < into.Count; i++)
             {
-                if (into.Count == 0)
-                    into.Add(position);
-                else
-                    into[into.Count - 1] = position;
-                return;
+                Vector2 a;
+                Vector2 b;
+                if (!ClipSegment(into[i], into[i + 1], minX, maxX, minY, maxY, out a, out b))
+                {
+                    open = false;
+                    continue;
+                }
+
+                if (!open || (last - a).sqrMagnitude > 1f)
+                {
+                    if (courseClip.Count > 0)
+                        courseClip.Add(new Vector2(float.NaN, float.NaN));
+                    courseClip.Add(a);
+                }
+
+                courseClip.Add(b);
+                last = b;
+                open = true;
             }
 
-            into.Add(position);
+            into.Clear();
+            into.AddRange(courseClip);
+        }
+
+        static bool SegmentMeetsView(Vector2 a, Vector2 b, Vector2 origin, float limitX, float limitY)
+        {
+            Vector2 hitA;
+            Vector2 hitB;
+            return ClipSegment(a, b, origin.x - limitX, origin.x + limitX, origin.y - limitY, origin.y + limitY, out hitA, out hitB);
+        }
+
+        static bool ClipSegment(Vector2 a, Vector2 b, float minX, float maxX, float minY, float maxY, out Vector2 ca, out Vector2 cb)
+        {
+            ca = a;
+            cb = b;
+            float dx = b.x - a.x;
+            float dy = b.y - a.y;
+            float t0 = 0f;
+            float t1 = 1f;
+            if (!ClipSide(-dx, a.x - minX, ref t0, ref t1))
+                return false;
+            if (!ClipSide(dx, maxX - a.x, ref t0, ref t1))
+                return false;
+            if (!ClipSide(-dy, a.y - minY, ref t0, ref t1))
+                return false;
+            if (!ClipSide(dy, maxY - a.y, ref t0, ref t1))
+                return false;
+            ca = new Vector2(a.x + dx * t0, a.y + dy * t0);
+            cb = new Vector2(a.x + dx * t1, a.y + dy * t1);
+            return true;
+        }
+
+        static bool ClipSide(float p, float q, ref float t0, ref float t1)
+        {
+            if (Mathf.Abs(p) < 0.0000001f)
+                return q >= 0f;
+            float t = q / p;
+            if (p < 0f)
+            {
+                if (t > t1)
+                    return false;
+                if (t > t0)
+                    t0 = t;
+            }
+            else
+            {
+                if (t < t0)
+                    return false;
+                if (t < t1)
+                    t1 = t;
+            }
+
+            return true;
         }
 
         static bool PastView(Vector2 position, Vector2 origin, float limitX, float limitY)
@@ -1715,11 +2502,86 @@ namespace SpaceShip
             velocity = new Vector2(x, y);
         }
 
+        void PushStrafe(CombatShip ship, ref Vector2 velocity, float mass, float dt)
+        {
+            if (ship == null || !ship.player || ship.build == null || ship.build.hull == null)
+                return;
+            float side = strafeCommand;
+            float thrust = ship.build.hull.sideThrust;
+            if (Mathf.Abs(side) < 0.01f || thrust <= 0.01f || flight == null)
+                return;
+            float sideAccel = flight.Acceleration(thrust, Mathf.Max(1f, mass));
+            PushVelocity(ref velocity, ShipLateral(ship) * Mathf.Sign(side), sideAccel, Mathf.Abs(side), dt);
+        }
+
         static void PushVelocity(ref Vector2 velocity, Vector2 thrustWorld, float accel, float thrustLevel, float dt)
         {
             if (thrustLevel <= 0.01f || accel <= 0f || thrustWorld.sqrMagnitude <= 0.0001f)
                 return;
             velocity += thrustWorld.normalized * accel * thrustLevel * dt;
+        }
+
+        static float DriveAdjustTime(CombatShip ship, ShipReport report, bool reactorUp)
+        {
+            if (ship == null || ship.build == null)
+                return 0f;
+            float weighted = 0f;
+            float weight = 0f;
+            for (int i = 0; i < ship.build.rooms.Count; i++)
+            {
+                if (!Functioning(ship, report, i, reactorUp))
+                    continue;
+                RoomPlacement placement = ship.build.rooms[i];
+                if (placement == null || placement.room == null || placement.room.thrust <= 0f)
+                    continue;
+                float part = placement.room.thrust * RoomEfficiency(ship, i);
+                if (part <= 0.0001f || placement.room.speedAdjustTime <= 0.01f)
+                    continue;
+                weighted += placement.room.speedAdjustTime * part;
+                weight += part;
+            }
+
+            if (weight <= 0.0001f)
+                return 0f;
+            return weighted / weight;
+        }
+
+        static bool GearOverCap(Vector2 velocity, float thrustLevel, float fullAccel, float adjustTime)
+        {
+            if (!GearCap(thrustLevel, fullAccel, adjustTime, out float cap))
+                return false;
+            return velocity.magnitude > cap;
+        }
+
+        static bool GearCap(float thrustLevel, float fullAccel, float adjustTime, out float cap)
+        {
+            cap = 0f;
+            if (thrustLevel <= 0.01f || thrustLevel >= 0.999f || adjustTime <= 0.05f || fullAccel <= 0.01f)
+                return false;
+            cap = thrustLevel * fullAccel * adjustTime;
+            return true;
+        }
+
+        static void HoldSpeed(ref Vector2 velocity, float cap, float fullAccel, float dt)
+        {
+            if (cap < 0f || fullAccel <= 0f)
+                return;
+            float speed = velocity.magnitude;
+            if (speed <= cap + 0.05f || speed < 0.0001f)
+                return;
+            float next = Mathf.MoveTowards(speed, cap, fullAccel * dt);
+            velocity *= next / speed;
+        }
+
+        static void ReelGearSpeed(ref Vector2 velocity, float thrustLevel, float fullAccel, float adjustTime, float dt)
+        {
+            if (!GearCap(thrustLevel, fullAccel, adjustTime, out float cap))
+                return;
+            float speed = velocity.magnitude;
+            if (speed <= cap || speed < 0.0001f)
+                return;
+            float next = Mathf.MoveTowards(speed, cap, fullAccel * dt);
+            velocity *= next / speed;
         }
 
         static WellPass[] CopyPasses(WellPass[] source)
@@ -1907,6 +2769,36 @@ namespace SpaceShip
         {
             float rad = heading * Mathf.Deg2Rad;
             return new Vector2(Mathf.Cos(rad), -Mathf.Sin(rad));
+        }
+
+        static Vector2 ShipLateral(CombatShip ship)
+        {
+            Vector2 nozzle = MainNozzle(ship);
+            Vector2 side = new Vector2(nozzle.y, -nozzle.x);
+            if (side.sqrMagnitude < 0.0001f)
+                return Right(ship.heading);
+            Vector2 world = Right(ship.heading) * side.x + Forward(ship.heading) * side.y;
+            if (world.sqrMagnitude < 0.0001f)
+                return Right(ship.heading);
+            return world.normalized;
+        }
+
+        static Vector2 MainNozzle(CombatShip ship)
+        {
+            Vector2 body = Vector2.zero;
+            if (ship == null || ship.build == null)
+                return Vector2.up;
+            for (int i = 0; i < ship.build.rooms.Count; i++)
+            {
+                RoomPlacement placement = ship.build.rooms[i];
+                if (placement == null || placement.room == null || placement.room.thrust <= 0f)
+                    continue;
+                body += Direction(0f, placement.rotation) * placement.room.thrust;
+            }
+
+            if (body.sqrMagnitude < 0.01f)
+                return Vector2.up;
+            return body.normalized;
         }
 
         public static Vector2 Direction(float heading, int rotation)

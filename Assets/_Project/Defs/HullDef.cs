@@ -26,6 +26,15 @@ namespace SpaceShip
         [Tooltip("转向惯性，秒。从静止加到满转、以及松开后停下来，各用这么长时间。0 是立刻跟上。战斗时间流速会把这段时间一并放慢。")]
         public float turnInertia = 0.4f;
 
+        [Tooltip("速度带来的转向惯性，秒 /（米/秒）。航速每多 1 米/秒，转向惯性就再多这么多秒。0 是航速不影响转向。")]
+        public float speedInertia = 0f;
+
+        [Tooltip("左右各一台侧向推进器的推力。不是舱室，跟着船体走。按住时沿船的左右平移。0 是没有侧推。")]
+        public float sideThrust = 16f;
+
+        [Tooltip("没放下舱室的空格子按这个舱计算质量和装甲。穿甲、伤害和爆炸都会打到这些格子。")]
+        public RoomDef defaultCabin;
+
         [HideInInspector]
         [Tooltip("true 表示这一格被切掉，不能放舱。下标 = y * 宽 + x。")]
         public bool[] blocked = System.Array.Empty<bool>();

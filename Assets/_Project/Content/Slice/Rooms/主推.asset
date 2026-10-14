@@ -10,19 +10,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1000000000000000000000000000003, type: 3}
-  m_Name: 主推
+  m_Name: "\u4E3B\u63A8"
   m_EditorClassIdentifier: 
-  displayName: 主推
+  displayName: "\u4E3B\u63A8"
   kind: 2
   width: 2
   height: 2
+  halfCell: 0
   mass: 16
   powerDraw: 8
   powerOutput: 0
-  thrust: 40
+  thrust: 60
+  speedAdjustTime: 3
   heatCapacity: 4
   heatOutput: 6
   heatDissipation: 0
+  effectRange: 0
   armor: 0
   sealsAir: 0
   suppressesFire: 0

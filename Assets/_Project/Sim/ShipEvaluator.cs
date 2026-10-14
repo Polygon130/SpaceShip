@@ -84,6 +84,25 @@ namespace SpaceShip
             }
 
             report.mass += build.hull.baseMass;
+            RoomDef bare = build.hull.defaultCabin;
+            if (bare != null && bare.mass > 0f)
+            {
+                int empty = 0;
+                for (int y = 0; y < build.hull.height; y++)
+                {
+                    for (int x = 0; x < build.hull.width; x++)
+                    {
+                        if (!build.hull.IsOpen(x, y))
+                            continue;
+                        int key = y * build.hull.width + x;
+                        if (occupied.floor.ContainsKey(key) || occupied.half.ContainsKey(key))
+                            continue;
+                        empty++;
+                    }
+                }
+
+                report.mass += bare.mass * empty;
+            }
             report.powerOutput = sourceOutput;
             MarkCrew(build, occupied, report);
             float powerLeft = sourceOutput;

@@ -16,6 +16,9 @@ MonoBehaviour:
   muzzleSpeed: 80
   cooldown: 0.9
   baseHit: 0.75
+  rangeHit: 0.25
+  closeHit: 1.5
+  closeRange: 48
   lockPerSecond: 0.35
   penetration: 3
   damage: 12

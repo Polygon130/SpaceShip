@@ -157,6 +157,13 @@ namespace SpaceShip
                         }
                         else
                         {
+                            RoomDef bare = build.hull.defaultCabin;
+                            if (bare != null)
+                            {
+                                cell.style.backgroundColor = bare.swatch;
+                                cell.tooltip = bare.displayName;
+                            }
+
                             cell.AddToClassList("cell-empty");
                         }
                     }
@@ -944,11 +951,34 @@ namespace SpaceShip
             float accel = flight.Acceleration(report.thrust, report.mass);
             AddStat(host, "", false);
             AddStat(host, "加速度  " + accel.ToString("0.#") + " 米/秒²", false);
+            float adjust = 0f;
+            float adjustWeight = 0f;
+            for (int i = 0; i < build.rooms.Count; i++)
+            {
+                if (i >= report.online.Count || !report.online[i])
+                    continue;
+                RoomDef room = build.rooms[i].room;
+                if (room == null || room.thrust <= 0f || room.speedAdjustTime <= 0.01f)
+                    continue;
+                adjust += room.speedAdjustTime * room.thrust;
+                adjustWeight += room.thrust;
+            }
+
+            if (adjustWeight > 0.01f)
+            {
+                float seconds = adjust / adjustWeight;
+                float rated = accel * seconds;
+                AddStat(host, "变速    " + seconds.ToString("0.#") + " 秒    满出力 " + rated.ToString("0") + " 米/秒", false);
+            }
             HullDef hull = build != null ? build.hull : null;
             float turnRate = hull != null && hull.turnRateAtRest > 0.01f ? hull.turnRateAtRest : 20f;
             float inertia = hull != null ? hull.turnInertia : 0.4f;
+            float speedInertia = hull != null ? hull.speedInertia : 0f;
+            float side = hull != null ? hull.sideThrust : 0f;
+            AddStat(host, "侧推    左 " + side.ToString("0.#") + "    右 " + side.ToString("0.#"), false);
             AddStat(host, "转向    " + turnRate.ToString("0") + " 度/秒", false);
             AddStat(host, "惯性    " + inertia.ToString("0.##") + " 秒", false);
+            AddStat(host, "速度惯性  " + speedInertia.ToString("0.###") + " 秒/米每秒", false);
             AddStat(host, "跟转    " + flight.velocityFollowTurn.ToString("0.##"), false);
         }
 
