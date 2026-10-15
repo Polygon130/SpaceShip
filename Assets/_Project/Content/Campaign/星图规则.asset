@@ -1,0 +1,60 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3a00000000000000000000000000006, type: 3}
+  m_Name: 星图规则
+  m_EditorClassIdentifier: 
+  rulesVersion: 1
+  seed: 13000
+  planetTarget: 100
+  majorCount: 4
+  minorCount: 4
+  factions:
+  - {fileID: 11400000, guid: c3b00000000000000000000000000011, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000012, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000013, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000014, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000015, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000016, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000017, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000018, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000019, type: 2}
+  - {fileID: 11400000, guid: c3b0000000000000000000000000001a, type: 2}
+  wells:
+  - {fileID: 11400000, guid: b2000000000000000000000000000017, type: 2}
+  - {fileID: 11400000, guid: b200000000000000000000000000000c, type: 2}
+  - {fileID: 11400000, guid: b2000000000000000000000000000018, type: 2}
+  wellWeights:
+  - 0.5
+  - 0.35
+  - 0.15
+  goods:
+  - {fileID: 11400000, guid: c3b00000000000000000000000000001, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000002, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000003, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000004, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000005, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000006, type: 2}
+  routeKinds:
+  - {fileID: 11400000, guid: c3b00000000000000000000000000031, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000032, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000033, type: 2}
+  - {fileID: 11400000, guid: c3b00000000000000000000000000034, type: 2}
+  startFactionId: 航政署
+  galaxyRadius: 90
+  minStarSpacing: 7
+  peripheryMinPlanets: 2
+  peripheryMaxPlanets: 6
+  wildStationChance: 0.35
+  smugglerRoutes: 6
+  expiredRoutes: 4
+  wildTax: 1
+  travel: {fileID: 11400000, guid: c3b00000000000000000000000000041, type: 2}

@@ -11,4 +11,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_Project/Scenes/CombatArena.unity
     guid: b2000000000000000000000000000013
+  - enabled: 1
+    path: Assets/_Project/Scenes/CampaignChart.unity
+    guid: c3b00000000000000000000000000060
   m_configObjects: {}

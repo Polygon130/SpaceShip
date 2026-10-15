@@ -10,6 +10,7 @@ namespace SpaceShip
     public static class UiFonts
     {
         const string GlyphProbe = "舱室船壳装配结果质量推力供电热容散热产热未覆盖武器气阀半格损管范围覆盖通道导弹追踪吨米秒度拖到上再一次可以挪位置出格子就拆掉断电变暗仍然计入当前不能改布局放不下已没能原来的从左侧把按住松开货骨舰桥反应堆主推电磁炮装甲带敌方玩家静止满速加速度刹停倒车菜单星际商船面板必须还缺没有电能源之间走得到船员挡住路旋转右键朝向正方形条横竖对调开战返回操作键自动射击结构解体过热沿白口准才会线松手后航迹绕星轨道点进保持滑行档切减空每加最快淡弯跟画面外滚轮缩放撞了追击脱离占红踪平环火自由只公里策略看见或大画面格F自驾驶行三角标记清时小就成更惯性选框里双击镜头跟着随能量实全部战斗斗近优先源备攻哪艘离此刻校中心鼠标那都为圆直径拉确认距是取消默认侧移QE地图M我回靠贴锁住舷碰0123456789./×：，（）";
+        const string CampaignGlyphs = "青赤白玄金沧霜岚朔望临归远静明沉垣宿津浦阙渊野湾门台川陵星陆泽原丘环洲峡航政署铸炉联营绿洲协定远灯商会北冕同盟盐潮碎星社白港雾港民团锈锚政枢水矿石燃料合金药品香料粮食零件织物军火数据核稀有气体官道私航走私过期曲速脉冲巡航常规引擎探测停靠离开买入卖出货物库存价格轨道站恒星不可降落未标注野生无主势力种子快照生成预览复现航路解锁抵达返回光年千米税事件相位转运主要次要占领外围手写模板指纹读档重新农工炼本系查看中断待命海图作废强制此后重力井规则应得到没有可用已经不能写入方向信用点压力占位演示压缩真实航时播放场景窗口全部只显示已发现指纹信用货舱人在附近先回到才能堆满了船上这种车站离开进入切到沿用现有自动驾驶手感倍速满出力";
 
         static FontAsset fontAsset;
         static bool loggedFailure;
@@ -106,7 +107,7 @@ namespace SpaceShip
                     continue;
                 if (!EnsureShader(created))
                     continue;
-                AddCharacters(created, GlyphProbe);
+                AddCharacters(created, GlyphProbe + CampaignGlyphs);
                 if (created.characterTable == null || created.characterTable.Count == 0)
                     continue;
                 fontAsset = created;

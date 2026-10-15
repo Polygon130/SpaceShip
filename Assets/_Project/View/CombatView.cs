@@ -123,6 +123,11 @@ namespace SpaceShip
 
         public static void Open(VisualElement parent, CombatSim sim, Action onExit)
         {
+            Open(parent, sim, onExit, "返回拼船");
+        }
+
+        public static void Open(VisualElement parent, CombatSim sim, Action onExit, string exitLabel)
+        {
             Close();
             root = new VisualElement { name = "combat-root" };
             root.AddToClassList("combat-root");
@@ -130,7 +135,7 @@ namespace SpaceShip
 
             var bar = new VisualElement();
             bar.AddToClassList("combat-bar");
-            var back = new Button(onExit) { text = "返回拼船" };
+            var back = new Button(onExit) { text = string.IsNullOrEmpty(exitLabel) ? "返回拼船" : exitLabel };
             back.AddToClassList("fight-button");
             bar.Add(back);
             var title = new Label("战斗") { pickingMode = PickingMode.Ignore };
