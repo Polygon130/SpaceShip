@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3a00000000000000000000000000004, type: 3}
+  m_Name: 盐潮核心
+  m_EditorClassIdentifier: 
+  starName: 盐潮
+  mapPosition: {x: 40.4508, y: 29.3893}
+  planets:
+  - planetName: 盐潮
+    well: {fileID: 11400000, guid: b200000000000000000000000000000c, type: 2}
+    orbitRadius: 16000
+    orbitPeriod: 55
+    orbitPhase: 0.3
+    owned: 1
+    station: 1
+    role: 5

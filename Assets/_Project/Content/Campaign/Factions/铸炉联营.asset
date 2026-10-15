@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3a00000000000000000000000000002, type: 3}
+  m_Name: 铸炉联营
+  m_EditorClassIdentifier: 
+  factionId: 铸炉联营
+  displayName: 铸炉联营
+  rank: 0
+  color: {r: 0.86, g: 0.45, b: 0.22, a: 1}
+  tax: 1.08
+  ownedCap: 5
+  core: {fileID: 11400000, guid: c3b00000000000000000000000000022, type: 2}
+  exports:
+  - {fileID: 11400000, guid: c3b00000000000000000000000000004, type: 2}
+  imports:
+  - {fileID: 11400000, guid: c3b00000000000000000000000000002, type: 2}
